@@ -24,7 +24,8 @@ data class ConverterUiState(
     val loading: Boolean = true,
     val iconPack: IconPack? = null,
     val matches: List<IconMatch> = emptyList(),
-    val launcherCount: Int = 0,
+    val launcherActivityCount: Int = 0,
+    val uniquePackageCount: Int = 0,
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -43,7 +44,12 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
 
     private fun reloadApps() = viewModelScope.launch {
         val apps = withContext(Dispatchers.IO) { appsRepository.launcherApps() }
-        _uiState.value = _uiState.value.copy(loading = false, launcherCount = apps.size, matches = apps.map { IconMatch(it, MatchStatus.UNMATCHED, com.wikiglobal.iconconverter.model.MatchConfidence.NONE) })
+        _uiState.value = _uiState.value.copy(
+            loading = false,
+            launcherActivityCount = apps.size,
+            uniquePackageCount = apps.map { it.packageName }.distinct().size,
+            matches = apps.map { IconMatch(it, MatchStatus.UNMATCHED, com.wikiglobal.iconconverter.model.MatchConfidence.NONE) }
+        )
     }
 
     fun selectApk(uri: Uri) = viewModelScope.launch {
@@ -55,7 +61,13 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 Triple(pack, apps, IconMatcher.match(apps, pack.mappings, pack.calendars))
             }
         }.onSuccess { (pack, apps, matches) ->
-            _uiState.value = ConverterUiState(false, pack, matches, apps.size)
+            _uiState.value = ConverterUiState(
+                loading = false,
+                iconPack = pack,
+                matches = matches,
+                launcherActivityCount = apps.size,
+                uniquePackageCount = apps.map { it.packageName }.distinct().size
+            )
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "解析 APK 失败")
         }

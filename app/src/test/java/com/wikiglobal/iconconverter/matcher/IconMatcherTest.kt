@@ -9,7 +9,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class IconMatcherTest {
-    private val app = InstalledApp("com.demo", "com.demo.Home", "Demo", ColorDrawable(), setOf("com.demo.Home"))
+    private val app = InstalledApp(
+        packageName = "com.demo",
+        launcherActivity = "com.demo.Home",
+        label = "Demo",
+        applicationIcon = ColorDrawable(),
+        activityAliases = setOf("com.demo.Home")
+    )
     @Test fun `uses package fallback when activity differs`() {
         val match = IconMatcher.matchOne(app, listOf(IconMapping(ComponentKey("com.demo", "com.demo.Other"), "fallback")))
         assertEquals(MatchStatus.PACKAGE, match.status)

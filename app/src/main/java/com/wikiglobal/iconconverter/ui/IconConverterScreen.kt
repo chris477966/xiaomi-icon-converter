@@ -49,7 +49,8 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
 @Composable private fun PackSummary(pack: IconPack, state: ConverterUiState) = Card(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
     Column(Modifier.padding(12.dp)) {
         Text(pack.displayName, style = MaterialTheme.typography.titleMedium)
-        Text("Icon mappings: ${pack.mappings.size}  ·  本机 Launcher App: ${state.launcherCount}")
+        Text("Icon mappings: ${pack.mappings.size}")
+        Text("Launcher Activities: ${state.launcherActivityCount}  ·  Unique Packages: ${state.uniquePackageCount}")
         Text("已匹配: ${state.matchedCount}  未匹配: ${state.unmatchedCount}  冲突: ${state.conflictCount}  动态日历: ${state.dynamicCalendarCount}")
     }
 }
@@ -62,6 +63,7 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
         Column(Modifier.weight(1f).padding(start = 8.dp)) {
             Text(match.app.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.app.packageName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(match.app.launcherActivity, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.status.name, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
         }
     }

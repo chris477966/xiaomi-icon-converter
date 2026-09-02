@@ -32,10 +32,15 @@ data class InstalledApp(
     val packageName: String,
     val launcherActivity: String,
     val label: String,
-    val originalIcon: Drawable,
+    val applicationIcon: Drawable,
+    val activityIcon: Drawable? = null,
+    val isSystemApp: Boolean = false,
     /** Includes aliases/targets reported by PackageManager; used for deterministic alias matching. */
     val activityAliases: Set<String> = emptySet()
-)
+) {
+    /** Activity icon gives a launcher alias its actual presentation; application icon remains available for export/UI. */
+    val originalIcon: Drawable get() = activityIcon ?: applicationIcon
+}
 
 enum class MatchStatus { EXACT_COMPONENT, PACKAGE, ALIAS, CONFLICT, UNMATCHED }
 enum class MatchConfidence { HIGH, MEDIUM, LOW, NONE }
