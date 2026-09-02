@@ -8,7 +8,12 @@
         </intent>
     </queries>
 
-    <application android:allowBackup="false" android:label="HyperOS Icon Converter" android:theme="@style/AppTheme">
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
+        android:label="HyperOS Icon Converter"
+        android:theme="@style/AppTheme">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
