@@ -22,7 +22,18 @@ class MainActivity : ComponentActivity() {
             val state by viewModel.uiState.collectAsState()
             val openApk = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(viewModel::selectApk) }
             val saveIcons = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { it?.let(viewModel::generateTo) }
-            MaterialTheme { Surface { IconConverterScreen(state, { openApk.launch(arrayOf("application/vnd.android.package-archive")) }, { saveIcons.launch("icons") }) } }
+            val saveReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportDiagnosticReport) }
+            MaterialTheme {
+                Surface {
+                    IconConverterScreen(
+                        state = state,
+                        onSelect = { openApk.launch(arrayOf("application/vnd.android.package-archive")) },
+                        onGenerate = { saveIcons.launch("icons") },
+                        onCheckHyperOs = viewModel::checkHyperOsCompatibility,
+                        onExportReport = { saveReport.launch("hyperos3-theme-report.txt") }
+                    )
+                }
+            }
         }
     }
 }

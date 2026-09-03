@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wikiglobal.iconconverter.compiler.XiaomiIconCompiler
+import com.wikiglobal.iconconverter.hyperos.ThemeCompatibilityProbe
+import com.wikiglobal.iconconverter.hyperos.ThemeCompatibilityReport
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -26,6 +28,9 @@ data class ConverterUiState(
     val matches: List<IconMatch> = emptyList(),
     val launcherActivityCount: Int = 0,
     val uniquePackageCount: Int = 0,
+    val diagnosticReport: ThemeCompatibilityReport? = null,
+    val diagnosticRunning: Boolean = false,
+    val diagnosticMessage: String? = null,
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -92,5 +97,23 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             }
         }.onSuccess { count -> _uiState.value = _uiState.value.copy(loading = false, message = "已生成 icons（$count 个图标）") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "生成失败") }
+    }
+
+    fun checkHyperOsCompatibility() = viewModelScope.launch {
+        _uiState.value = _uiState.value.copy(diagnosticRunning = true, diagnosticMessage = null)
+        runCatching { withContext(Dispatchers.IO) { ThemeCompatibilityProbe(getApplication()).run() } }
+            .onSuccess { report -> _uiState.value = _uiState.value.copy(diagnosticRunning = false, diagnosticReport = report, diagnosticMessage = "HyperOS 兼容性探针已完成") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(diagnosticRunning = false, diagnosticMessage = error.message ?: "兼容性检测失败") }
+    }
+
+    fun exportDiagnosticReport(uri: Uri) = viewModelScope.launch {
+        val report = _uiState.value.diagnosticReport ?: return@launch
+        runCatching {
+            withContext(Dispatchers.IO) {
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(report.toText()) }
+                    ?: error("无法写入诊断报告")
+            }
+        }.onSuccess { _uiState.value = _uiState.value.copy(diagnosticMessage = "诊断报告已导出") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(diagnosticMessage = error.message ?: "导出失败") }
     }
 }

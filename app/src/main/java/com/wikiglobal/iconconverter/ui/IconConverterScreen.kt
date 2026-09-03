@@ -32,10 +32,13 @@ import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
 
 @Composable
-fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit) {
+fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = onSelect, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text("选择图标包 APK") }
         Spacer(Modifier.height(12.dp))
+        Button(onClick = onCheckHyperOs, enabled = !state.diagnosticRunning, modifier = Modifier.fillMaxWidth()) { Text("检查 HyperOS 3 兼容性") }
+        state.diagnosticMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
+        state.diagnosticReport?.let { DiagnosticSummary(it, onExportReport) }
         state.iconPack?.let { PackSummary(it, state) }
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
         if (state.loading) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
@@ -43,6 +46,17 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
             items(state.matches, key = { it.app.packageName + it.app.launcherActivity }) { match -> AppRow(match, state.iconPack) }
         }
         Button(onClick = onGenerate, enabled = state.iconPack != null && state.matchedCount > 0 && !state.loading, modifier = Modifier.fillMaxWidth()) { Text("生成 Xiaomi icons") }
+    }
+}
+
+@Composable private fun DiagnosticSummary(report: com.wikiglobal.iconconverter.hyperos.ThemeCompatibilityReport, onExport: () -> Unit) = Card(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+    Column(Modifier.padding(12.dp)) {
+        Text("HyperOS Theme Compatibility", style = MaterialTheme.typography.titleMedium)
+        Text("Root read-only: ${report.rootAvailable}")
+        Text("HyperOS: ${report.systemProperties["ro.mi.os.version.name"] ?: "NOT_FOUND"}")
+        Text("Theme paths: ${report.paths.size}  ·  ZIP archives: ${report.archives.count { it.isZipCompatible }}")
+        Text("Launcher: ${report.launcher?.versionName ?: "NOT_FOUND"}  ·  Adaptive: ${report.adaptiveIconCount}  ·  Monochrome: ${report.monochromeIconCount}")
+        Button(onClick = onExport, modifier = Modifier.padding(top = 8.dp)) { Text("导出诊断报告") }
     }
 }
 
