@@ -45,6 +45,7 @@ class ThemeBackupManagerTest {
         override fun inspect(path: String) = metadata().copy(sha256 = currentSha)
         override fun copySystemFileTo(source: String, destination: File) = runCatching { destination.parentFile?.mkdirs(); this.source.copyTo(destination, overwrite = true); RootOperation(true) }.getOrElse { RootOperation(false) }
         override fun atomicInstall(localArchive: File, target: String, original: ThemeFileMetadata): RootOperation { atomicWrites++; currentSha = HyperOs3ThemePatcher.sha256(localArchive); return RootOperation(true) }
-        override fun refreshLauncher() = RootOperation(true)
+        override fun refreshIconCache() = RootOperation(true)
+        override fun forceStopLauncher() = RootOperation(true)
     }
 }

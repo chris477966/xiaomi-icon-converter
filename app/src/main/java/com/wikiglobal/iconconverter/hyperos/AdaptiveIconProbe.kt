@@ -14,6 +14,7 @@ import android.os.Build
 class AdaptiveIconProbe(private val context: Context) {
     fun run(): AdaptiveIconReport {
         val pm = context.packageManager
+        val rawResolver = RawAppIconResolver(context)
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         @Suppress("DEPRECATION")
         val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -24,10 +25,8 @@ class AdaptiveIconProbe(private val context: Context) {
             val component = ComponentName(activity.packageName, activity.name)
             val activityLookup = runCatching { pm.getActivityIcon(component) }.getOrNull()
             val loaded = runCatching { activity.loadIcon(pm) }.getOrNull()
-            val resources = runCatching { pm.getResourcesForApplication(activity.applicationInfo) }.getOrNull()
-            val resourceId = activity.icon.takeIf { it != 0 } ?: activity.applicationInfo.icon.takeIf { it != 0 } ?: 0
-            val raw = if (resources != null && resourceId != 0) runCatching { resources.getDrawable(resourceId, null) }.getOrNull() else null
-            val inspected = raw ?: loaded ?: activityLookup
+            val raw = rawResolver.resolve(activity.packageName, activity.name, loaded, activity.applicationInfo.loadIcon(pm))
+            val inspected = raw.drawable
             val adaptive = inspected as? AdaptiveIconDrawable
             val monochrome = if (adaptive != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (adaptive.monochrome == null) "NO" else "YES"
@@ -35,11 +34,11 @@ class AdaptiveIconProbe(private val context: Context) {
             AdaptiveIconSample(
                 packageName = activity.packageName,
                 activityName = activity.name,
-                activityIconId = activity.icon,
-                applicationIconId = activity.applicationInfo.icon,
+                activityIconId = raw.activityIconResourceId,
+                applicationIconId = raw.applicationIconResourceId,
                 getActivityIconClass = activityLookup.className(),
                 loadIconClass = loaded.className(),
-                rawIconClass = raw.className(),
+                rawIconClass = raw.drawable.className(),
                 category = categoryOf(inspected),
                 foregroundClass = adaptive?.foreground?.javaClass?.simpleName,
                 backgroundClass = adaptive?.background?.javaClass?.simpleName,

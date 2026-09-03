@@ -24,6 +24,8 @@ class InstalledAppsRepository(private val context: Context) {
                     label = resolved.loadLabel(packageManager).toString(),
                     applicationIcon = info.applicationInfo.loadIcon(packageManager),
                     activityIcon = runCatching { info.loadIcon(packageManager) }.getOrNull(),
+                    activityIconResourceId = info.icon,
+                    applicationIconResourceId = info.applicationInfo.icon,
                     isSystemApp = info.applicationInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,
                     activityAliases = aliases.map { normalize(info.packageName, it) }.toSet()
                 )

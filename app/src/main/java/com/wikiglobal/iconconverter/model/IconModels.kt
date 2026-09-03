@@ -34,6 +34,9 @@ data class InstalledApp(
     val label: String,
     val applicationIcon: Drawable,
     val activityIcon: Drawable? = null,
+    /** Raw APK resource ids are retained so Monet can bypass Launcher-rasterized icons. */
+    val activityIconResourceId: Int = 0,
+    val applicationIconResourceId: Int = 0,
     val isSystemApp: Boolean = false,
     /** Includes aliases/targets reported by PackageManager; used for deterministic alias matching. */
     val activityAliases: Set<String> = emptySet()

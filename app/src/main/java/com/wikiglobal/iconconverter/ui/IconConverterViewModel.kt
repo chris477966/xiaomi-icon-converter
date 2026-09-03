@@ -17,6 +17,7 @@ import com.wikiglobal.iconconverter.hyperos.MonetGlyphSource
 import com.wikiglobal.iconconverter.hyperos.MonetPalette
 import com.wikiglobal.iconconverter.hyperos.MonetPaletteReader
 import com.wikiglobal.iconconverter.hyperos.MonochromeResolver
+import com.wikiglobal.iconconverter.hyperos.RawAppIconResolver
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -63,6 +64,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val parser = IconPackParser(application)
     private val appsRepository = InstalledAppsRepository(application)
     private val rootExecutor = SuThemeRootExecutor()
+    private val rawIconResolver = RawAppIconResolver(application)
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
@@ -86,7 +88,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val sources = linkedMapOf<String, MonetGlyphSource>(); val pngs = linkedMapOf<String, ByteArray>(); val pack = _uiState.value.iconPack
             _uiState.value.matches.forEach { match ->
                 val packGlyph = match.drawableName?.let { pack?.drawableLoader(it) }
-                val (glyph, source) = MonochromeResolver.resolve(match.app.originalIcon, packGlyph)
+                val rawIcon = rawIconResolver.resolve(match.app)
+                val (glyph, source) = rawIcon.drawable?.let { MonochromeResolver.resolve(it, packGlyph) } ?: (packGlyph to if (packGlyph != null) MonetGlyphSource.ICON_PACK_GLYPH else MonetGlyphSource.UNAVAILABLE)
                 val key = match.app.packageName + "#" + match.app.launcherActivity
                 sources[key] = source
                 if (glyph != null) pngs[key] = MonetGlyphRenderer.render(glyph, palette, dark)
@@ -203,10 +206,15 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = if (result.isSuccess) _uiState.value.copy(themeOperationRunning = false, message = "原主题已安全恢复") else _uiState.value.copy(themeOperationRunning = false, message = result.exceptionOrNull()?.message ?: "恢复失败")
     }
 
-    fun refreshLauncher() = viewModelScope.launch {
+    fun refreshIconCache() = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)
-        val result = withContext(Dispatchers.IO) { rootExecutor.refreshLauncher() }
-        _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = if (result.success) "已请求刷新桌面" else "刷新桌面失败：${result.message}")
+        val result = withContext(Dispatchers.IO) { rootExecutor.refreshIconCache() }
+        _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = if (result.success) "已请求刷新图标缓存" else "刷新图标缓存失败：${result.message}")
+    }
+    fun forceRestartLauncher() = viewModelScope.launch {
+        _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)
+        val result = withContext(Dispatchers.IO) { rootExecutor.forceStopLauncher() }
+        _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = if (result.success) "已强制重启桌面" else "强制重启桌面失败：${result.message}")
     }
 
     fun checkHyperOsCompatibility() = viewModelScope.launch {

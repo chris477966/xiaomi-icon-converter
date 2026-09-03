@@ -34,7 +34,8 @@ class MainActivity : ComponentActivity() {
                         onCheckRoot = viewModel::checkRoot,
                         onApplyTheme = viewModel::applyIconPackToSystem,
                         onRestoreTheme = viewModel::restoreOriginalTheme,
-                        onRefreshLauncher = viewModel::refreshLauncher,
+                        onRefreshCache = viewModel::refreshIconCache,
+                        onForceRestart = viewModel::forceRestartLauncher,
                         onThemeMode = viewModel::selectThemeMode,
                         onMonetPreview = viewModel::generateMonetPreview,
                         onApplyMonet = viewModel::applyMonetToSystem
