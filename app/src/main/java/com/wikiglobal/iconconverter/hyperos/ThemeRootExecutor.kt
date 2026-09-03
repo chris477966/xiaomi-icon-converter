@@ -11,6 +11,7 @@ interface ThemeRootExecutor {
     fun inspect(path: String): ThemeFileMetadata?
     fun copySystemFileTo(source: String, destination: File): RootOperation
     fun atomicInstall(localArchive: File, target: String, original: ThemeFileMetadata): RootOperation
+    fun refreshLauncher(): RootOperation
 }
 
 /** Real root executor. It never runs on creation: callers must invoke it after a user action. */
@@ -34,6 +35,11 @@ class SuThemeRootExecutor : ThemeRootExecutor {
         val result = run(command)
         if (!result.success) run("rm -f $staged")
         return result
+    }
+    /** User-triggered only. Broadcast first; HyperOS falls back to restarting its launcher process. */
+    override fun refreshLauncher(): RootOperation {
+        val broadcast = run("am broadcast -a miui.intent.action.THEME_CHANGED")
+        return if (broadcast.success) broadcast else run("am force-stop com.miui.home")
     }
     private fun run(command: String): RootOperation = runCatching {
         val process = ProcessBuilder("su", "-c", command).redirectErrorStream(true).start(); val text = process.inputStream.bufferedReader().readText(); RootOperation(process.waitFor() == 0, text.trim())

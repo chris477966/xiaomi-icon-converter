@@ -20,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -30,9 +31,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
+import com.wikiglobal.iconconverter.hyperos.MonetGlyphSource
 
 @Composable
-fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit) {
+fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onCheckRoot: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit, onRefreshLauncher: () -> Unit, onThemeMode: (ThemeMode) -> Unit, onMonetPreview: () -> Unit, onApplyMonet: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = onSelect, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text("选择图标包 APK") }
         Spacer(Modifier.height(12.dp))
@@ -40,15 +42,30 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
         state.diagnosticMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
         state.diagnosticReport?.let { DiagnosticSummary(it, onExportReport) }
         state.iconPack?.let { PackSummary(it, state) }
-        Text("Root: ${if (state.rootAvailable) "可用" else "不可用"}", style = MaterialTheme.typography.bodySmall)
+        Text("Root: ${if (state.rootAvailable) "可用" else "未检查/不可用"}", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = onCheckRoot, enabled = !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("检查 Root") }
+        Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(state.themeMode == ThemeMode.ICON_PACK, { onThemeMode(ThemeMode.ICON_PACK) }); Text("原图标包"); RadioButton(state.themeMode == ThemeMode.MATERIAL_YOU, { onThemeMode(ThemeMode.MATERIAL_YOU) }); Text("Material You") }
+        if (state.themeMode == ThemeMode.MATERIAL_YOU) MonetSummary(state, onMonetPreview, onApplyMonet)
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
         if (state.loading) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(state.matches, key = { it.app.packageName + it.app.launcherActivity }) { match -> AppRow(match, state.iconPack) }
+            items(state.matches, key = { it.app.packageName + it.app.launcherActivity }) { match -> AppRow(match, state.iconPack, state.monet.sources[match.app.packageName + "#" + match.app.launcherActivity]) }
         }
         Button(onClick = onGenerate, enabled = state.iconPack != null && state.matchedCount > 0 && !state.loading, modifier = Modifier.fillMaxWidth()) { Text("生成 Xiaomi icons") }
         Button(onClick = onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用到系统") }
         Button(onClick = onRestoreTheme, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("恢复原主题") }
+        Button(onClick = onRefreshLauncher, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("刷新桌面") }
+    }
+}
+
+@Composable private fun MonetSummary(state: ConverterUiState, onPreview: () -> Unit, onApply: () -> Unit) = Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    Column(Modifier.padding(12.dp)) {
+        val palette = state.monet.palette
+        Text("Current Mode: ${if (state.monet.dark) "Dark" else "Light"}")
+        if (palette != null) { val colors = palette.colors(state.monet.dark); Text("Background: #${"%08X".format(colors.first)}  Foreground: #${"%08X".format(colors.second)}") }
+        Text("Native ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Adaptive ${state.monet.sourceCount(MonetGlyphSource.ADAPTIVE_FOREGROUND)} · Icon Pack ${state.monet.sourceCount(MonetGlyphSource.ICON_PACK_GLYPH)} · Unavailable ${state.monet.sourceCount(MonetGlyphSource.UNAVAILABLE)}")
+        Button(onClick = onPreview, modifier = Modifier.fillMaxWidth()) { Text("生成 Material You 预览") }
+        Button(onClick = onApply, enabled = state.rootAvailable && state.monet.generated.isNotEmpty() && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用 Material You 到系统") }
     }
 }
 
@@ -72,7 +89,7 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
     }
 }
 
-@Composable private fun AppRow(match: IconMatch, pack: IconPack?) = Card(Modifier.fillMaxWidth()) {
+@Composable private fun AppRow(match: IconMatch, pack: IconPack?, monetSource: MonetGlyphSource?) = Card(Modifier.fillMaxWidth()) {
     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
         DrawablePreview(match.app.originalIcon, "原始")
         Spacer(Modifier.size(8.dp))
@@ -82,6 +99,7 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
             Text(match.app.packageName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.app.launcherActivity, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.status.name, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+            monetSource?.let { Text("Monet: ${it.name}", style = MaterialTheme.typography.labelSmall) }
         }
     }
 }

@@ -32,6 +32,6 @@ object XiaomiIconCompiler {
             }
         }
     }
-    private fun activityPart(activity: String, packageName: String): String = activity.removePrefix("$packageName.")
+    fun activityPart(activity: String, packageName: String): String = activity.removePrefix("$packageName.")
         .replace(Regex("[^A-Za-z0-9._-]"), "_")
 }

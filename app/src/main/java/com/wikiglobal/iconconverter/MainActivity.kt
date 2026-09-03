@@ -31,8 +31,13 @@ class MainActivity : ComponentActivity() {
                         onGenerate = { saveIcons.launch("icons") },
                         onCheckHyperOs = viewModel::checkHyperOsCompatibility,
                         onExportReport = { saveReport.launch("hyperos3-theme-report.txt") },
+                        onCheckRoot = viewModel::checkRoot,
                         onApplyTheme = viewModel::applyIconPackToSystem,
-                        onRestoreTheme = viewModel::restoreOriginalTheme
+                        onRestoreTheme = viewModel::restoreOriginalTheme,
+                        onRefreshLauncher = viewModel::refreshLauncher,
+                        onThemeMode = viewModel::selectThemeMode,
+                        onMonetPreview = viewModel::generateMonetPreview,
+                        onApplyMonet = viewModel::applyMonetToSystem
                     )
                 }
             }

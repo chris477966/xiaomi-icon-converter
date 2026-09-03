@@ -12,6 +12,11 @@ import com.wikiglobal.iconconverter.hyperos.HyperOs3IconReplacement
 import com.wikiglobal.iconconverter.hyperos.HyperOs3ThemePatcher
 import com.wikiglobal.iconconverter.hyperos.SuThemeRootExecutor
 import com.wikiglobal.iconconverter.hyperos.ThemeBackupManager
+import com.wikiglobal.iconconverter.hyperos.MonetGlyphRenderer
+import com.wikiglobal.iconconverter.hyperos.MonetGlyphSource
+import com.wikiglobal.iconconverter.hyperos.MonetPalette
+import com.wikiglobal.iconconverter.hyperos.MonetPaletteReader
+import com.wikiglobal.iconconverter.hyperos.MonochromeResolver
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -27,6 +32,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class ThemeMode { ICON_PACK, MATERIAL_YOU }
+data class MonetUiState(val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap()) {
+    val available get() = palette != null
+    fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
+}
+
 data class ConverterUiState(
     val loading: Boolean = true,
     val iconPack: IconPack? = null,
@@ -38,6 +49,8 @@ data class ConverterUiState(
     val diagnosticMessage: String? = null,
     val rootAvailable: Boolean = false,
     val themeOperationRunning: Boolean = false,
+    val themeMode: ThemeMode = ThemeMode.ICON_PACK,
+    val monet: MonetUiState = MonetUiState(),
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -54,7 +67,54 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
 
-    init { reloadApps(); viewModelScope.launch(Dispatchers.IO) { _uiState.value = _uiState.value.copy(rootAvailable = rootExecutor.isRootAvailable()) } }
+    init { reloadApps() }
+
+    /** Explicit only: app startup never asks for su authorization. */
+    fun checkRoot() = viewModelScope.launch {
+        val available = withContext(Dispatchers.IO) { rootExecutor.isRootAvailable() }
+        _uiState.value = _uiState.value.copy(rootAvailable = available, message = if (available) "Root 可用" else "Root 不可用")
+    }
+
+    fun selectThemeMode(mode: ThemeMode) { _uiState.value = _uiState.value.copy(themeMode = mode) }
+
+    /** Previews exactly the 250px PNGs that Material You Apply will patch into the current base archive. */
+    fun generateMonetPreview() = viewModelScope.launch {
+        _uiState.value = _uiState.value.copy(loading = true, message = null)
+        runCatching { withContext(Dispatchers.Default) {
+            val palette = MonetPaletteReader.read() ?: error("当前系统 Monet 调色板不可用")
+            val dark = (getApplication<Application>().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val sources = linkedMapOf<String, MonetGlyphSource>(); val pngs = linkedMapOf<String, ByteArray>(); val pack = _uiState.value.iconPack
+            _uiState.value.matches.forEach { match ->
+                val packGlyph = match.drawableName?.let { pack?.drawableLoader(it) }
+                val (glyph, source) = MonochromeResolver.resolve(match.app.originalIcon, packGlyph)
+                val key = match.app.packageName + "#" + match.app.launcherActivity
+                sources[key] = source
+                if (glyph != null) pngs[key] = MonetGlyphRenderer.render(glyph, palette, dark)
+            }
+            MonetUiState(palette, dark, sources, pngs)
+        } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
+    }
+
+    fun applyMonetToSystem() = viewModelScope.launch {
+        val state = _uiState.value
+        _uiState.value = state.copy(themeOperationRunning = true, message = null)
+        runCatching { withContext(Dispatchers.IO) {
+            check(rootExecutor.isRootAvailable()) { "Root 不可用，未修改系统主题" }
+            val monet = state.monet.takeIf { it.available && it.generated.isNotEmpty() } ?: error("请先生成 Material You 预览")
+            val base = java.io.File(getApplication<Application>().filesDir, "staging/base-icons.zip").also { it.parentFile?.mkdirs() }
+            val original = rootExecutor.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("无法读取当前主题 icons")
+            check(rootExecutor.copySystemFileTo(SuThemeRootExecutor.ACTIVE_ICONS, base).success) { "无法读取当前主题 icons" }
+            check(HyperOs3ThemePatcher.sha256(base) == original.sha256) { "当前主题 SHA 校验失败" }
+            val replacements = state.matches.mapNotNull { match -> monet.generated[match.app.packageName + "#" + match.app.launcherActivity]?.let { HyperOs3IconReplacement(match.app.packageName, it) } }.distinctBy { it.entryName }
+            check(replacements.isNotEmpty()) { "没有可应用的 Material You 图标" }
+            val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-monet-icons.zip")
+            HyperOs3ThemePatcher.patch(base, patched, replacements)
+            backupManager.install(patched, "system-monet", "MATERIAL_YOU", monet.palette!!.hash()).getOrThrow()
+            replacements.size
+        } }.onSuccess { count -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = "已原子应用 $count 个 Material You 图标") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "Material You 应用失败") }
+    }
 
     private fun reloadApps() = viewModelScope.launch {
         val apps = withContext(Dispatchers.IO) { appsRepository.launcherApps() }
@@ -118,9 +178,15 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val original = rootExecutor.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("无法读取当前主题 icons")
             check(rootExecutor.copySystemFileTo(SuThemeRootExecutor.ACTIVE_ICONS, base).success) { "无法读取当前主题 icons" }
             check(HyperOs3ThemePatcher.sha256(base) == original.sha256) { "当前主题 SHA 校验失败" }
-            backupManager.ensureOriginalBackup("UNKNOWN", "com.miui.home") .getOrThrow()
-            val replacements = state.matches.filter { it.drawableName != null && it.status != MatchStatus.CONFLICT }.mapNotNull { match ->
-                pack.drawableLoader(match.drawableName!!)?.let { drawable -> HyperOs3IconReplacement(match.app.packageName, IconRenderer.renderPng(drawable, HyperOs3ThemePatcher.ICON_SIZE)) }
+            val rendered = state.matches.filter { it.drawableName != null && it.status != MatchStatus.CONFLICT }.mapNotNull { match ->
+                pack.drawableLoader(match.drawableName!!)?.let { drawable -> Triple(match, match.drawableName, IconRenderer.renderPng(drawable, HyperOs3ThemePatcher.ICON_SIZE)) }
+            }
+            val replacements = rendered.groupBy { it.first.app.packageName }.flatMap { (packageName, icons) ->
+                val distinctDrawables = icons.map { it.second }.distinct().size
+                icons.flatMapIndexed { index, (match, _, png) -> buildList {
+                    if (index == 0) add(HyperOs3IconReplacement(packageName, png))
+                    if (distinctDrawables > 1) add(HyperOs3IconReplacement(packageName, png, XiaomiIconCompiler.activityPart(match.app.launcherActivity, packageName)))
+                } }
             }.distinctBy { it.entryName }
             check(replacements.isNotEmpty()) { "没有可应用的匹配图标" }
             val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-icons.zip")
@@ -135,6 +201,12 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)
         val result = withContext(Dispatchers.IO) { backupManager.restore() }
         _uiState.value = if (result.isSuccess) _uiState.value.copy(themeOperationRunning = false, message = "原主题已安全恢复") else _uiState.value.copy(themeOperationRunning = false, message = result.exceptionOrNull()?.message ?: "恢复失败")
+    }
+
+    fun refreshLauncher() = viewModelScope.launch {
+        _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)
+        val result = withContext(Dispatchers.IO) { rootExecutor.refreshLauncher() }
+        _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = if (result.success) "已请求刷新桌面" else "刷新桌面失败：${result.message}")
     }
 
     fun checkHyperOsCompatibility() = viewModelScope.launch {

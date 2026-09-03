@@ -2,6 +2,7 @@ package com.wikiglobal.iconconverter.hyperos
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -22,7 +23,21 @@ class ThemeBackupManagerTest {
         val result = ThemeBackupManager(dir, fake, store).restore()
         assertTrue(result.isFailure); assertTrue(result.exceptionOrNull()!!.message!!.contains("本工具之外")); assertEquals(0, fake.atomicWrites)
     }
-    private class MemoryStore : ThemeSessionStore { var value: ThemeSession? = null; override fun load() = value; override fun save(session: ThemeSession) { value = session } }
+    @Test fun `pre install external theme is refused before any atomic write`() {
+        val dir = Files.createTempDirectory("theme-preinstall").toFile(); val source = File(dir, "source").apply { writeBytes(byteArrayOf(5)) }; val fake = FakeRoot(source); val store = MemoryStore()
+        store.save(ThemeSession(source, fake.metadata().copy(sha256 = "original"), lastInstalledSha256 = "installed")); fake.currentSha = "external"
+        val result = ThemeBackupManager(dir, fake, store).install(source, "p", "m", null)
+        assertTrue(result.isFailure); assertTrue(result.exceptionOrNull()!!.message!!.contains("已停止应用")); assertEquals(0, fake.atomicWrites)
+    }
+    @Test fun `successful restore clears session and next apply path creates a fresh backup`() {
+        val dir = Files.createTempDirectory("theme-session").toFile(); val source = File(dir, "source").apply { writeBytes(byteArrayOf(8, 9)) }; val fake = FakeRoot(source); val store = MemoryStore()
+        val initial = ThemeBackupManager(dir, fake, store).ensureOriginalBackup("OS", "Launcher").getOrThrow()
+        store.save(initial.copy(lastInstalledSha256 = fake.currentSha))
+        ThemeBackupManager(dir, fake, store).restore().getOrThrow(); assertNull(store.load())
+        val fresh = ThemeBackupManager(dir, fake, store).ensureOriginalBackup("OS", "Launcher").getOrThrow()
+        assertTrue(fresh.backup.parentFile != initial.backup.parentFile)
+    }
+    private class MemoryStore : ThemeSessionStore { var value: ThemeSession? = null; override fun load() = value; override fun save(session: ThemeSession) { value = session }; override fun clear() { value = null } }
     private class FakeRoot(private val source: File) : ThemeRootExecutor {
         var currentSha = HyperOs3ThemePatcher.sha256(source); var atomicWrites = 0
         fun metadata() = ThemeFileMetadata(currentSha, source.length(), 6101,6101,"755","u:object_r:theme_data_file:s0")
@@ -30,5 +45,6 @@ class ThemeBackupManagerTest {
         override fun inspect(path: String) = metadata().copy(sha256 = currentSha)
         override fun copySystemFileTo(source: String, destination: File) = runCatching { destination.parentFile?.mkdirs(); this.source.copyTo(destination, overwrite = true); RootOperation(true) }.getOrElse { RootOperation(false) }
         override fun atomicInstall(localArchive: File, target: String, original: ThemeFileMetadata): RootOperation { atomicWrites++; currentSha = HyperOs3ThemePatcher.sha256(localArchive); return RootOperation(true) }
+        override fun refreshLauncher() = RootOperation(true)
     }
 }
