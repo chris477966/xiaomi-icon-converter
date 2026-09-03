@@ -4,120 +4,44 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.RadioButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.wikiglobal.iconconverter.model.IconMatch
-import com.wikiglobal.iconconverter.model.IconPack
 import com.wikiglobal.iconconverter.hyperos.MonetGlyphSource
+import com.wikiglobal.iconconverter.model.IconMatch
 
-@Composable
-fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onCheckRoot: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit, onRefreshCache: () -> Unit, onForceRestart: () -> Unit, onThemeMode: (ThemeMode) -> Unit, onMonetPreview: () -> Unit, onApplyMonet: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Button(onClick = onSelect, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text("选择图标包 APK") }
-        Spacer(Modifier.height(12.dp))
-        Button(onClick = onCheckHyperOs, enabled = !state.diagnosticRunning, modifier = Modifier.fillMaxWidth()) { Text("检查 HyperOS 3 兼容性") }
-        state.diagnosticMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
-        state.diagnosticReport?.let { DiagnosticSummary(it, onExportReport) }
-        state.iconPack?.let { PackSummary(it, state) }
-        Text("Root: ${if (state.rootAvailable) "可用" else "未检查/不可用"}", style = MaterialTheme.typography.bodySmall)
-        Button(onClick = onCheckRoot, enabled = !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("检查 Root") }
-        Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(state.themeMode == ThemeMode.ICON_PACK, { onThemeMode(ThemeMode.ICON_PACK) }); Text("原图标包"); RadioButton(state.themeMode == ThemeMode.MATERIAL_YOU, { onThemeMode(ThemeMode.MATERIAL_YOU) }); Text("Material You") }
-        if (state.themeMode == ThemeMode.MATERIAL_YOU) MonetSummary(state, onMonetPreview, onApplyMonet)
-        state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
-        if (state.loading) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(state.matches, key = { it.app.packageName + it.app.launcherActivity }) { match -> AppRow(match, state.iconPack, state.monet.sources[match.app.packageName + "#" + match.app.launcherActivity], state.monet.generated[match.app.packageName + "#" + match.app.launcherActivity], state.themeMode == ThemeMode.MATERIAL_YOU) }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onCheckRoot: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit, onRefreshCache: () -> Unit, onForceRestart: () -> Unit, onThemeMode: (ThemeMode) -> Unit, onMonetPreview: () -> Unit, onApplyMonet: () -> Unit) {
+    var tools by remember { mutableStateOf(false) }; val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it) } }
+    Scaffold(contentWindowInsets = WindowInsets.safeDrawing, topBar = { TopAppBar(title = { Column { Text("HyperIcon Converter"); Text("HyperOS 3", style = MaterialTheme.typography.labelMedium) } }, actions = { TextButton({ tools = !tools }) { Text(if (tools) "返回" else "工具") } }) }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = { if (!tools) BottomAppBar { when (state.themeMode) { ThemeMode.ICON_PACK -> Button(onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text("应用原图标包") }; ThemeMode.MATERIAL_YOU -> Button(if(state.rootAvailable) onApplyMonet else onCheckRoot, enabled = state.monet.generated.isNotEmpty() && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text(if (state.rootAvailable) "应用 Material You" else "检查 Root 并继续") } } } }) { padding ->
+        if (tools) SystemToolsScreen(Modifier.padding(padding), state, onCheckRoot, onRestoreTheme, onRefreshCache, onForceRestart, onCheckHyperOs, onExportReport)
+        else Column(Modifier.padding(padding).fillMaxSize()) {
+            SourceCard(state, onSelect)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal=16.dp, vertical=8.dp)) { ThemeMode.entries.forEachIndexed { i, mode -> SegmentedButton(selected=state.themeMode==mode,onClick={onThemeMode(mode)},shape=SegmentedButtonDefaults.itemShape(i,2),label={Text(if(mode==ThemeMode.ICON_PACK)"图标包" else "Material You")}) } }
+            if (state.themeMode == ThemeMode.ICON_PACK) IconPackScreen(state, onGenerate, Modifier.weight(1f)) else MaterialYouScreen(state, onMonetPreview, Modifier.weight(1f))
         }
-        Button(onClick = onGenerate, enabled = state.iconPack != null && state.matchedCount > 0 && !state.loading, modifier = Modifier.fillMaxWidth()) { Text("生成 Xiaomi icons") }
-        if (state.themeMode == ThemeMode.ICON_PACK) Button(onClick = onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用原图标包") }
-        Button(onClick = onRestoreTheme, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("恢复原主题") }
-        Button(onClick = onRefreshCache, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("刷新图标缓存") }
-        Button(onClick = onForceRestart, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("强制重启桌面（仅在图标未刷新时使用）") }
+        if (state.themeOperationRunning) Box(Modifier.fillMaxSize(), contentAlignment=Alignment.Center) { Card { Row(Modifier.padding(20.dp), verticalAlignment=Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text("正在处理主题…") } } }
     }
 }
 
-@Composable private fun MonetSummary(state: ConverterUiState, onPreview: () -> Unit, onApply: () -> Unit) = Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-    Column(Modifier.padding(12.dp)) {
-        val palette = state.monet.palette
-        Text("Current Mode: ${if (state.monet.dark) "Dark" else "Light"}")
-        if (palette != null) { val colors = palette.colors(state.monet.dark); Text("Background: #${"%08X".format(colors.first)}  Foreground: #${"%08X".format(colors.second)}") }
-        Text("Native ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Adaptive ${state.monet.sourceCount(MonetGlyphSource.SAFE_ADAPTIVE_FOREGROUND)} · Icon Pack ${state.monet.sourceCount(MonetGlyphSource.SAFE_ICON_PACK_GLYPH)} · Unavailable ${state.monet.sources.values.count { it.name.startsWith("UNAVAILABLE") }}")
-        Text("本次将修改：${state.monet.generated.size} · 保留当前主题：${state.monet.sources.size - state.monet.generated.size}")
-        Button(onClick = onPreview, modifier = Modifier.fillMaxWidth()) { Text("生成 Material You 预览") }
-        Button(onClick = onApply, enabled = state.rootAvailable && state.monet.generated.isNotEmpty() && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用 Material You 到系统") }
-    }
+@Composable private fun SourceCard(state: ConverterUiState, select: () -> Unit) = Card(Modifier.fillMaxWidth().padding(16.dp)) { Row(Modifier.padding(16.dp), verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("图标包", style=MaterialTheme.typography.labelMedium); Text(state.iconPack?.displayName ?: "尚未选择", style=MaterialTheme.typography.titleMedium); state.iconPack?.let { Text("${it.mappings.size} mappings · 匹配 ${state.matchedCount} / ${state.launcherActivityCount}", style=MaterialTheme.typography.bodySmall) } }; TextButton(select){Text(if(state.iconPack==null)"选择" else "更换")} } }
+@Composable private fun IconPackScreen(state: ConverterUiState, export: () -> Unit, modifier: Modifier) = Column(modifier.padding(horizontal=16.dp)) { Text("匹配 ${state.matchedCount} · 未匹配 ${state.unmatchedCount} · 冲突 ${state.conflictCount}", style=MaterialTheme.typography.bodyMedium); if(state.iconPack==null) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("选择图标包后查看匹配结果")} else LazyColumn(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){items(state.matches){match->Card(Modifier.fillMaxWidth()){Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically){DrawablePreview(match.app.originalIcon,"当前");Spacer(Modifier.width(12.dp));match.drawableName?.let{state.iconPack.drawableLoader(it)}?.let{DrawablePreview(it,"目标")};Text(match.app.label,Modifier.padding(start=12.dp).weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)}}}; item { TextButton(export,Modifier.fillMaxWidth()){Text("导出 Xiaomi icons")} } } }
+@Composable private fun MaterialYouScreen(state: ConverterUiState, generate: () -> Unit, modifier: Modifier) = Column(modifier.padding(horizontal=16.dp)) { val p=state.monet.palette; Card(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Text("Material You",style=MaterialTheme.typography.titleMedium);Text(if(state.monet.dark)"Dark" else "Light");p?.let{val c=it.colors(state.monet.dark);Text("Background #${"%08X".format(c.first)} · Foreground #${"%08X".format(c.second)}")};Text("可生成 ${state.monet.generated.size} · 保留原主题 ${state.monet.sources.size-state.monet.generated.size}");Text("官方单色 ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · 自适应前景 ${state.monet.sourceCount(MonetGlyphSource.SAFE_ADAPTIVE_FOREGROUND)} · 自动提取 ${state.monet.sourceCount(MonetGlyphSource.GENERATED_MASK)} · 图标包图层 ${state.monet.sourceCount(MonetGlyphSource.SAFE_ICON_PACK_GLYPH)}")}}
+    if(state.monet.generated.isEmpty()) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Button(generate){Text("生成预览")}} else LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){items(state.matches){match->val key=match.app.packageName+"#"+match.app.launcherActivity;Column(horizontalAlignment=Alignment.CenterHorizontally){Row(verticalAlignment=Alignment.CenterVertically){DrawablePreview(match.app.originalIcon,"当前");Text("→");MonetPreview(state.monet.generated[key])};Text(match.app.label,maxLines=1,overflow=TextOverflow.Ellipsis,textAlign=TextAlign.Center,style=MaterialTheme.typography.labelMedium);if(!state.monet.generated.containsKey(key))Text("保留原图",style=MaterialTheme.typography.labelSmall)}}}
 }
-
-@Composable private fun DiagnosticSummary(report: com.wikiglobal.iconconverter.hyperos.ThemeCompatibilityReport, onExport: () -> Unit) = Card(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-    Column(Modifier.padding(12.dp)) {
-        Text("HyperOS Theme Compatibility", style = MaterialTheme.typography.titleMedium)
-        Text("Root read-only: ${report.rootAvailable}")
-        Text("HyperOS: ${report.systemProperties["ro.mi.os.version.name"] ?: "NOT_FOUND"}")
-        Text("Theme paths: ${report.paths.size}  ·  ZIP archives: ${report.archives.count { it.isZipCompatible }}")
-        Text("Launcher: ${report.launcher?.versionName ?: "NOT_FOUND"}  ·  Adaptive: ${report.adaptiveIcons.adaptiveNative}  ·  Monochrome: ${report.adaptiveIcons.nativeMonochrome}")
-        Button(onClick = onExport, modifier = Modifier.padding(top = 8.dp)) { Text("导出诊断报告") }
-    }
-}
-
-@Composable private fun PackSummary(pack: IconPack, state: ConverterUiState) = Card(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-    Column(Modifier.padding(12.dp)) {
-        Text(pack.displayName, style = MaterialTheme.typography.titleMedium)
-        Text("Icon mappings: ${pack.mappings.size}")
-        Text("Launcher Activities: ${state.launcherActivityCount}  ·  Unique Packages: ${state.uniquePackageCount}")
-        Text("已匹配: ${state.matchedCount}  未匹配: ${state.unmatchedCount}  冲突: ${state.conflictCount}  动态日历: ${state.dynamicCalendarCount}")
-    }
-}
-
-@Composable private fun AppRow(match: IconMatch, pack: IconPack?, monetSource: MonetGlyphSource?, monetPng: ByteArray?, materialMode: Boolean) = Card(Modifier.fillMaxWidth()) {
-    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        DrawablePreview(match.app.originalIcon, "原始")
-        Spacer(Modifier.size(8.dp))
-        if (materialMode) MonetPreview(monetPng) else match.drawableName?.let { pack?.drawableLoader(it) }?.let { DrawablePreview(it, "目标") }
-        Column(Modifier.weight(1f).padding(start = 8.dp)) {
-            Text(match.app.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(match.app.packageName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(match.app.launcherActivity, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(match.status.name, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-            monetSource?.let { Text(monetLabel(it), style = MaterialTheme.typography.labelSmall) }
-        }
-    }
-}
-
-private fun monetLabel(source: MonetGlyphSource) = when (source) { MonetGlyphSource.NATIVE_MONOCHROME -> "Monet: 官方单色图层"; MonetGlyphSource.SAFE_ADAPTIVE_FOREGROUND -> "Monet: 自适应前景"; MonetGlyphSource.SAFE_ICON_PACK_GLYPH -> "Monet: 图标包透明图层"; MonetGlyphSource.UNAVAILABLE_FULL_BLEED -> "无法生成：前景层覆盖整个图标"; MonetGlyphSource.UNAVAILABLE_OPAQUE_EDGES -> "无法生成：边缘不透明"; MonetGlyphSource.UNAVAILABLE_EXCESSIVE_COVERAGE -> "无法生成：覆盖比例过高"; MonetGlyphSource.UNAVAILABLE_EMPTY -> "无法生成：图标没有透明前景"; MonetGlyphSource.UNAVAILABLE_NO_SOURCE -> "无法生成：没有可用单色图层" }
-
-@Composable private fun MonetPreview(bytes: ByteArray?) {
-    val bitmap = remember(bytes) { bytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    if (bitmap != null) Image(BitmapPainter(bitmap.asImageBitmap()), "Material You 最终预览", Modifier.size(48.dp)) else Text("无法生成", style = MaterialTheme.typography.labelSmall)
-}
-
-@Composable private fun DrawablePreview(drawable: Drawable, description: String) {
-    val bitmap = remember(drawable) {
-        Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888).also { bitmap ->
-            val old = drawable.bounds; drawable.setBounds(0, 0, 48, 48); drawable.draw(Canvas(bitmap)); drawable.bounds = old
-        }
-    }
-    Image(BitmapPainter(bitmap.asImageBitmap()), description, Modifier.size(48.dp))
-}
+@Composable private fun SystemToolsScreen(modifier:Modifier,state:ConverterUiState,check:()->Unit,restore:()->Unit,refresh:()->Unit,restart:()->Unit,diagnose:()->Unit,export:()->Unit)=LazyColumn(modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("系统工具",style=MaterialTheme.typography.titleLarge)};item{Text("Root：${if(state.rootAvailable)"可用" else "未检查"}")};item{Button(check,Modifier.fillMaxWidth()){Text("检查 Root")}};item{Button(restore,Modifier.fillMaxWidth(),enabled=state.rootAvailable){Text("恢复原主题")}};item{Button(refresh,Modifier.fillMaxWidth(),enabled=state.rootAvailable){Text("刷新图标缓存")}};item{Button(restart,Modifier.fillMaxWidth(),enabled=state.rootAvailable,colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error)){Text("强制重启桌面")}};item{HorizontalDivider()};item{Button(diagnose,Modifier.fillMaxWidth()){Text("HyperOS 3 兼容性诊断")}};item{Button(export,Modifier.fillMaxWidth(),enabled=state.diagnosticReport!=null){Text("导出诊断报告")}}}
+@Composable private fun MonetPreview(bytes:ByteArray?){val b=remember(bytes){bytes?.let{android.graphics.BitmapFactory.decodeByteArray(it,0,it.size)}};if(b!=null)Image(BitmapPainter(b.asImageBitmap()),"Material 预览",Modifier.size(56.dp))else Surface(Modifier.size(56.dp),shape=MaterialTheme.shapes.small,tonalElevation=1.dp){Box(contentAlignment=Alignment.Center){Text("保留",style=MaterialTheme.typography.labelSmall)}}}
+@Composable private fun DrawablePreview(d:Drawable,description:String){val b=remember(d){Bitmap.createBitmap(56,56,Bitmap.Config.ARGB_8888).also{val o=d.bounds;d.setBounds(0,0,56,56);d.draw(Canvas(it));d.bounds=o}};Image(BitmapPainter(b.asImageBitmap()),description,Modifier.size(56.dp))}

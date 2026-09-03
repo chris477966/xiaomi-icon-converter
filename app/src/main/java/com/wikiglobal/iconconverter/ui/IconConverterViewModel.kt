@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class ThemeMode { ICON_PACK, MATERIAL_YOU }
-data class MonetUiState(val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap()) {
+data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val timestamp: Long = 0) {
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
@@ -94,7 +94,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 sources[key] = glyph.source
                 MonetGlyphRenderer.render(glyph, palette, dark)?.let { pngs[key] = it }
             }
-            MonetUiState(palette, dark, sources, pngs)
+            MonetUiState(System.nanoTime(), palette, dark, sources, pngs, System.currentTimeMillis())
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
     }
@@ -141,12 +141,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 Triple(pack, apps, IconMatcher.match(apps, pack.mappings, pack.calendars))
             }
         }.onSuccess { (pack, apps, matches) ->
-            _uiState.value = ConverterUiState(
+            _uiState.value = _uiState.value.copy(
                 loading = false,
                 iconPack = pack,
                 matches = matches,
                 launcherActivityCount = apps.size,
-                uniquePackageCount = apps.map { it.packageName }.distinct().size
+                uniquePackageCount = apps.map { it.packageName }.distinct().size,
+                monet = MonetUiState(),
+                message = null
             )
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "解析 APK 失败")
