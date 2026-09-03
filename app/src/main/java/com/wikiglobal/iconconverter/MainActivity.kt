@@ -30,7 +30,9 @@ class MainActivity : ComponentActivity() {
                         onSelect = { openApk.launch(arrayOf("application/vnd.android.package-archive")) },
                         onGenerate = { saveIcons.launch("icons") },
                         onCheckHyperOs = viewModel::checkHyperOsCompatibility,
-                        onExportReport = { saveReport.launch("hyperos3-theme-report.txt") }
+                        onExportReport = { saveReport.launch("hyperos3-theme-report.txt") },
+                        onApplyTheme = viewModel::applyIconPackToSystem,
+                        onRestoreTheme = viewModel::restoreOriginalTheme
                     )
                 }
             }

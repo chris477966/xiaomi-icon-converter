@@ -16,6 +16,7 @@ object IconRenderer {
         drawable.setBounds(0, 0, size, size)
         drawable.draw(canvas)
         drawable.bounds = original
-        return ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() }
+        return bitmapToPng(bitmap)
     }
+    fun bitmapToPng(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() }
 }

@@ -32,7 +32,7 @@ import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
 
 @Composable
-fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit) {
+fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Button(onClick = onSelect, enabled = !state.loading, modifier = Modifier.fillMaxWidth()) { Text("选择图标包 APK") }
         Spacer(Modifier.height(12.dp))
@@ -40,12 +40,15 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
         state.diagnosticMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
         state.diagnosticReport?.let { DiagnosticSummary(it, onExportReport) }
         state.iconPack?.let { PackSummary(it, state) }
+        Text("Root: ${if (state.rootAvailable) "可用" else "不可用"}", style = MaterialTheme.typography.bodySmall)
         state.message?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
         if (state.loading) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(state.matches, key = { it.app.packageName + it.app.launcherActivity }) { match -> AppRow(match, state.iconPack) }
         }
         Button(onClick = onGenerate, enabled = state.iconPack != null && state.matchedCount > 0 && !state.loading, modifier = Modifier.fillMaxWidth()) { Text("生成 Xiaomi icons") }
+        Button(onClick = onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用到系统") }
+        Button(onClick = onRestoreTheme, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("恢复原主题") }
     }
 }
 

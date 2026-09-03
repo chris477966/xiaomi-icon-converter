@@ -1,0 +1,39 @@
+package com.wikiglobal.iconconverter.hyperos
+
+import java.io.File
+import java.time.Instant
+
+data class ThemeSession(val backup: File, val original: ThemeFileMetadata, val lastInstalledSha256: String? = null, val paletteHash: String? = null)
+interface ThemeSessionStore { fun load(): ThemeSession?; fun save(session: ThemeSession) }
+class FileThemeSessionStore(private val file: File) : ThemeSessionStore {
+    override fun load(): ThemeSession? = runCatching {
+        val values = file.readLines().mapNotNull { line -> line.substringBefore('=').takeIf { '=' in line }?.let { it to line.substringAfter('=') } }.toMap()
+        val backup = File(values.getValue("backup")); val original = ThemeFileMetadata(values.getValue("sha"), values.getValue("size").toLong(), values.getValue("uid").toInt(), values.getValue("gid").toInt(), values.getValue("mode"), values.getValue("context"))
+        ThemeSession(backup, original, values["installed"].orEmpty().ifBlank { null }, values["palette"].orEmpty().ifBlank { null })
+    }.getOrNull()
+    override fun save(session: ThemeSession) { file.parentFile?.mkdirs(); file.writeText("backup=${session.backup.absolutePath}\nsha=${session.original.sha256}\nsize=${session.original.size}\nuid=${session.original.uid}\ngid=${session.original.gid}\nmode=${session.original.mode}\ncontext=${session.original.selinuxContext}\ninstalled=${session.lastInstalledSha256.orEmpty()}\npalette=${session.paletteHash.orEmpty()}\n") }
+}
+
+class ThemeBackupManager(private val filesDir: File, private val root: ThemeRootExecutor, private val store: ThemeSessionStore) {
+    fun ensureOriginalBackup(hyperOsVersion: String, launcherVersion: String): Result<ThemeSession> = runCatching {
+        store.load()?.let { return@runCatching it }
+        val metadata = root.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("Cannot read active theme icons")
+        val directory = File(filesDir, "backups/${Instant.now().toEpochMilli()}").also { it.mkdirs() }; val backup = File(directory, "icons")
+        check(root.copySystemFileTo(SuThemeRootExecutor.ACTIVE_ICONS, backup).success) { "Theme backup copy failed" }
+        check(HyperOs3ThemePatcher.sha256(backup) == metadata.sha256) { "Backup SHA mismatch" }
+        File(directory, "metadata.json").writeText("{\n  \"sha256\": \"${metadata.sha256}\",\n  \"size\": ${metadata.size},\n  \"uid\": ${metadata.uid},\n  \"gid\": ${metadata.gid},\n  \"mode\": \"${metadata.mode}\",\n  \"selinuxContext\": \"${metadata.selinuxContext}\",\n  \"timestamp\": \"${Instant.now()}\",\n  \"hyperOsVersion\": \"$hyperOsVersion\",\n  \"launcherVersion\": \"$launcherVersion\"\n}\n")
+        ThemeSession(backup, metadata).also(store::save)
+    }
+    fun install(patched: File, iconPack: String, mode: String, paletteHash: String?): Result<ThemeSession> = runCatching {
+        val session = store.load() ?: error("Original backup is required before install")
+        check(HyperOs3ThemePatcher.validatePatchedArchive(patched, emptySet())) { "Patched archive is invalid" }
+        val result = root.atomicInstall(patched, SuThemeRootExecutor.ACTIVE_ICONS, session.original); check(result.success) { result.message }
+        session.copy(lastInstalledSha256 = HyperOs3ThemePatcher.sha256(patched), paletteHash = paletteHash).also(store::save)
+    }
+    fun restore(): Result<Unit> = runCatching {
+        val session = store.load() ?: error("No managed backup")
+        val current = root.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("Cannot inspect current theme")
+        check(current.sha256 == session.lastInstalledSha256) { "系统图标主题已在本工具之外发生变化。为避免覆盖当前主题，自动恢复已停止。" }
+        check(root.atomicInstall(session.backup, SuThemeRootExecutor.ACTIVE_ICONS, session.original).success) { "Atomic restore failed" }
+    }
+}

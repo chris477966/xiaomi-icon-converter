@@ -7,6 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.wikiglobal.iconconverter.compiler.XiaomiIconCompiler
 import com.wikiglobal.iconconverter.hyperos.ThemeCompatibilityProbe
 import com.wikiglobal.iconconverter.hyperos.ThemeCompatibilityReport
+import com.wikiglobal.iconconverter.hyperos.FileThemeSessionStore
+import com.wikiglobal.iconconverter.hyperos.HyperOs3IconReplacement
+import com.wikiglobal.iconconverter.hyperos.HyperOs3ThemePatcher
+import com.wikiglobal.iconconverter.hyperos.SuThemeRootExecutor
+import com.wikiglobal.iconconverter.hyperos.ThemeBackupManager
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -31,6 +36,8 @@ data class ConverterUiState(
     val diagnosticReport: ThemeCompatibilityReport? = null,
     val diagnosticRunning: Boolean = false,
     val diagnosticMessage: String? = null,
+    val rootAvailable: Boolean = false,
+    val themeOperationRunning: Boolean = false,
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -42,10 +49,12 @@ data class ConverterUiState(
 class IconConverterViewModel(application: Application) : AndroidViewModel(application) {
     private val parser = IconPackParser(application)
     private val appsRepository = InstalledAppsRepository(application)
+    private val rootExecutor = SuThemeRootExecutor()
+    private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
 
-    init { reloadApps() }
+    init { reloadApps(); viewModelScope.launch(Dispatchers.IO) { _uiState.value = _uiState.value.copy(rootAvailable = rootExecutor.isRootAvailable()) } }
 
     private fun reloadApps() = viewModelScope.launch {
         val apps = withContext(Dispatchers.IO) { appsRepository.launcherApps() }
@@ -97,6 +106,35 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             }
         }.onSuccess { count -> _uiState.value = _uiState.value.copy(loading = false, message = "已生成 icons（$count 个图标）") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "生成失败") }
+    }
+
+    /** The only path that can invoke root writes; it is deliberately wired to the explicit Apply button. */
+    fun applyIconPackToSystem() = viewModelScope.launch {
+        val state = _uiState.value; val pack = state.iconPack ?: return@launch
+        _uiState.value = state.copy(themeOperationRunning = true, message = null)
+        runCatching { withContext(Dispatchers.IO) {
+            check(rootExecutor.isRootAvailable()) { "Root 不可用，未修改系统主题" }
+            val base = java.io.File(getApplication<Application>().filesDir, "staging/base-icons.zip").also { it.parentFile?.mkdirs() }
+            val original = rootExecutor.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("无法读取当前主题 icons")
+            check(rootExecutor.copySystemFileTo(SuThemeRootExecutor.ACTIVE_ICONS, base).success) { "无法读取当前主题 icons" }
+            check(HyperOs3ThemePatcher.sha256(base) == original.sha256) { "当前主题 SHA 校验失败" }
+            backupManager.ensureOriginalBackup("UNKNOWN", "com.miui.home") .getOrThrow()
+            val replacements = state.matches.filter { it.drawableName != null && it.status != MatchStatus.CONFLICT }.mapNotNull { match ->
+                pack.drawableLoader(match.drawableName!!)?.let { drawable -> HyperOs3IconReplacement(match.app.packageName, IconRenderer.renderPng(drawable, HyperOs3ThemePatcher.ICON_SIZE)) }
+            }.distinctBy { it.entryName }
+            check(replacements.isNotEmpty()) { "没有可应用的匹配图标" }
+            val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-icons.zip")
+            HyperOs3ThemePatcher.patch(base, patched, replacements)
+            backupManager.install(patched, pack.packageName, "ICON_PACK", null).getOrThrow()
+            replacements.size
+        } }.onSuccess { count -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = "已原子应用 $count 个图标；可选择刷新桌面") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "应用失败；当前主题未被覆盖") }
+    }
+
+    fun restoreOriginalTheme() = viewModelScope.launch {
+        _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)
+        val result = withContext(Dispatchers.IO) { backupManager.restore() }
+        _uiState.value = if (result.isSuccess) _uiState.value.copy(themeOperationRunning = false, message = "原主题已安全恢复") else _uiState.value.copy(themeOperationRunning = false, message = result.exceptionOrNull()?.message ?: "恢复失败")
     }
 
     fun checkHyperOsCompatibility() = viewModelScope.launch {
