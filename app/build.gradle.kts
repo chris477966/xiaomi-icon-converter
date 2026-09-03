@@ -12,8 +12,8 @@ android {
         applicationId = "com.wikiglobal.iconconverter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.1.2-diagnostic"
+        versionCode = 4
+        versionName = "0.1.3-diagnostic"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
