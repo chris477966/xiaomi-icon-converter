@@ -24,12 +24,29 @@ class ThemePathDetector(private val shell: RootReadOnlyShell) {
     } else emptyList()
 
     fun archiveEntries(path: String): List<String>? {
-        val result = shell.command("unzip -Z1 ${shell.quote(path)} 2>/dev/null")
-        return if (result.exitCode == 0) result.output.lineSequence().filter { it.isNotBlank() }.toList() else null
+        val tools = listOf("unzip", "toybox unzip", "busybox unzip")
+        tools.forEach { tool ->
+            val compact = shell.command("$tool -Z1 ${shell.quote(path)} 2>/dev/null")
+            val compactEntries = compact.output.lineSequence().filter { it.isNotBlank() && !it.startsWith("Archive:") }.toList()
+            if (compact.exitCode == 0 && compactEntries.isNotEmpty()) return compactEntries
+            val long = shell.command("$tool -l ${shell.quote(path)} 2>/dev/null")
+            val longEntries = parseLongZipListing(long.output)
+            if (long.exitCode == 0 && longEntries.isNotEmpty()) return longEntries
+        }
+        return null
     }
 
     fun archiveEntry(path: String, entry: String): ByteArray? =
-        shell.bytes("unzip -p ${shell.quote(path)} ${shell.quote(entry)} 2>/dev/null")
+        listOf("unzip", "toybox unzip", "busybox unzip").firstNotNullOfOrNull { tool ->
+            shell.bytes("$tool -p ${shell.quote(path)} ${shell.quote(entry)} 2>/dev/null")
+        }
+
+    companion object {
+        /** Parses only filename rows from the portable `unzip -l` output; no archive extraction occurs. */
+        fun parseLongZipListing(output: String): List<String> = output.lineSequence().mapNotNull { line ->
+            Regex("^\\s*\\d+\\s+\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}\\s+(.+)$").matchEntire(line)?.groupValues?.getOrNull(1)?.trim()
+        }.filter { it.isNotBlank() }.toList()
+    }
 
     private fun metadata(path: String): RootFileMetadata {
         val type = if (shell.isDirectory(path)) "DIRECTORY" else shell.command("file -b ${shell.quote(path)} 2>/dev/null").output.ifBlank { "REGULAR_FILE" }

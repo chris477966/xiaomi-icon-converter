@@ -34,7 +34,7 @@ class ThemeArchiveInspectorTest {
         assertTrue(report.flags.hasFancyManifest)
         assertTrue(report.flags.hasDynamicIcons)
         assertTrue(report.flags.hasLayerAnimatingIcons)
-        assertTrue(report.transformConfigSummary.contains("transform[scale]"))
+        assertTrue(report.transformConfigSummary.contains("root=transform"))
         assertEquals(listOf("res/drawable-xxhdpi/com.example/0.png", "res/drawable-xxhdpi/com.example/1.png"), report.packageDirectoryTrees.getValue("res/drawable-xxhdpi/com.example"))
     }
 
@@ -45,5 +45,16 @@ class ThemeArchiveInspectorTest {
         assertTrue(!report.flags.hasLayer0Png)
         assertTrue(!report.flags.hasFancyIcons)
         assertEquals("NOT_FOUND", report.transformConfigSummary)
+    }
+
+    @Test fun `parses unzip long listing fallback`() {
+        val listing = """
+            Archive: icons
+              Length      Date    Time    Name
+            ---------  ---------- -----   ----
+                    4  2026-09-03 02:00   res/drawable-xxhdpi/com.example.png
+            ---------                     -------
+        """.trimIndent()
+        assertEquals(listOf("res/drawable-xxhdpi/com.example.png"), ThemePathDetector.parseLongZipListing(listing))
     }
 }

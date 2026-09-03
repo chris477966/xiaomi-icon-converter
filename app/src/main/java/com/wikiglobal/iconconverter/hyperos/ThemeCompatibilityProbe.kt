@@ -3,9 +3,7 @@ package com.wikiglobal.iconconverter.hyperos
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Resources
-import android.graphics.drawable.AdaptiveIconDrawable
 import android.os.Build
-import com.wikiglobal.iconconverter.repository.InstalledAppsRepository
 import java.util.Locale
 
 class ThemeCompatibilityProbe(private val context: Context) {
@@ -13,7 +11,7 @@ class ThemeCompatibilityProbe(private val context: Context) {
         val shell = RootReadOnlyShell()
         if (!shell.isRootAvailable()) return ThemeCompatibilityReport(
             rootAvailable = false, systemProperties = emptyMap(), paths = emptyList(), archives = emptyList(), launcher = launcherInfo(),
-            monetColors = monetColors(), adaptiveIconCount = 0, monochromeIconCount = 0,
+            monetColors = monetColors(), adaptiveIcons = AdaptiveIconProbe(context).run(),
             notes = listOf("Root access was not granted. No system path was read.")
         )
         val detector = ThemePathDetector(shell)
@@ -26,11 +24,6 @@ class ThemeCompatibilityProbe(private val context: Context) {
         val directoryNotes = paths.filter { shell.isDirectory(it.path) }.flatMap { item ->
             detector.directoryTree(item.path).map { "DIRECTORY_TREE ${item.path}: $it" }
         }
-        val launcherApps = InstalledAppsRepository(context).launcherApps()
-        val adaptive = launcherApps.count { it.originalIcon is AdaptiveIconDrawable }
-        val monochrome = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) launcherApps.count {
-            (it.originalIcon as? AdaptiveIconDrawable)?.monochrome != null
-        } else 0
         return ThemeCompatibilityReport(
             rootAvailable = true,
             systemProperties = HyperOsVersionDetector(shell).detect(),
@@ -38,8 +31,7 @@ class ThemeCompatibilityProbe(private val context: Context) {
             archives = archives,
             launcher = launcherInfo(),
             monetColors = monetColors(),
-            adaptiveIconCount = adaptive,
-            monochromeIconCount = monochrome,
+            adaptiveIcons = AdaptiveIconProbe(context).run(),
             notes = directoryNotes
         )
     }

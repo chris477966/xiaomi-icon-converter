@@ -55,7 +55,7 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
         Text("Root read-only: ${report.rootAvailable}")
         Text("HyperOS: ${report.systemProperties["ro.mi.os.version.name"] ?: "NOT_FOUND"}")
         Text("Theme paths: ${report.paths.size}  ·  ZIP archives: ${report.archives.count { it.isZipCompatible }}")
-        Text("Launcher: ${report.launcher?.versionName ?: "NOT_FOUND"}  ·  Adaptive: ${report.adaptiveIconCount}  ·  Monochrome: ${report.monochromeIconCount}")
+        Text("Launcher: ${report.launcher?.versionName ?: "NOT_FOUND"}  ·  Adaptive: ${report.adaptiveIcons.adaptiveNative}  ·  Monochrome: ${report.adaptiveIcons.nativeMonochrome}")
         Button(onClick = onExport, modifier = Modifier.padding(top = 8.dp)) { Text("导出诊断报告") }
     }
 }
