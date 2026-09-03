@@ -13,6 +13,10 @@ class IconPackParser(private val context: Context) {
         val localApk = File(context.cacheDir, "iconpack-${System.nanoTime()}.apk")
         context.contentResolver.openInputStream(uri)?.use { input -> localApk.outputStream().use(input::copyTo) }
             ?: error("无法读取所选 APK")
+        return parseApk(localApk)
+    }
+    /** Shared by user-selected packs and trusted bundled providers; resources are always resolved through aapt ids. */
+    fun parseApk(localApk: File): IconPack {
         val packageManager = context.packageManager
         @Suppress("DEPRECATION")
         val archive = packageManager.getPackageArchiveInfo(localApk.absolutePath, 0)

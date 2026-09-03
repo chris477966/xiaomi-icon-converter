@@ -1,0 +1,5 @@
+Lawnicons 2.18.0 by LawnchairLauncher
+https://github.com/LawnchairLauncher/lawnicons
+Licensed under Apache-2.0. Bundled APK SHA-256:
+e830b37e1cd7cd66487492f4a1084ba086254b2b09541d729da0ec2169a73bfe
+Lawnicons remains an external icon provider and is not original project artwork.

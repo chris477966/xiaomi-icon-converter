@@ -18,6 +18,9 @@ import com.wikiglobal.iconconverter.hyperos.MonetPalette
 import com.wikiglobal.iconconverter.hyperos.MonetPaletteReader
 import com.wikiglobal.iconconverter.hyperos.MonochromeResolver
 import com.wikiglobal.iconconverter.hyperos.RawAppIconResolver
+import com.wikiglobal.iconconverter.hyperos.LawniconsProvider
+import com.wikiglobal.iconconverter.hyperos.LawniconsMatchType
+import com.wikiglobal.iconconverter.hyperos.MonetGlyphResult
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -65,6 +68,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val appsRepository = InstalledAppsRepository(application)
     private val rootExecutor = SuThemeRootExecutor()
     private val rawIconResolver = RawAppIconResolver(application)
+    private val lawniconsProvider = LawniconsProvider(application)
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
@@ -85,11 +89,12 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         runCatching { withContext(Dispatchers.Default) {
             val palette = MonetPaletteReader.read() ?: error("当前系统 Monet 调色板不可用")
             val dark = (getApplication<Application>().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            val sources = linkedMapOf<String, MonetGlyphSource>(); val pngs = linkedMapOf<String, ByteArray>(); val pack = _uiState.value.iconPack
+            val sources = linkedMapOf<String, MonetGlyphSource>(); val pngs = linkedMapOf<String, ByteArray>(); lawniconsProvider.load()
             _uiState.value.matches.forEach { match ->
-                val packGlyph = match.drawableName?.let { pack?.drawableLoader(it) }
                 val rawIcon = rawIconResolver.resolve(match.app)
-                val glyph = MonochromeResolver.resolve(rawIcon.drawable, packGlyph)
+                val lawn = lawniconsProvider.match(match.app)
+                val native = MonochromeResolver.nativeOrNull(rawIcon.drawable)
+                val glyph = native ?: lawn.drawable?.let { drawable -> lawniconsProvider.alphaMask(drawable)?.let { mask -> MonetGlyphResult(mask, when(lawn.type){LawniconsMatchType.LAWNICONS_EXACT->MonetGlyphSource.LAWNICONS_EXACT;LawniconsMatchType.LAWNICONS_PACKAGE_FALLBACK->MonetGlyphSource.LAWNICONS_PACKAGE;LawniconsMatchType.LAWNICONS_ALIAS->MonetGlyphSource.LAWNICONS_ALIAS;else->MonetGlyphSource.UNAVAILABLE_NO_SOURCE}, null) } } ?: MonochromeResolver.resolve(rawIcon.drawable)
                 val key = match.app.packageName + "#" + match.app.launcherActivity
                 sources[key] = glyph.source
                 MonetGlyphRenderer.render(glyph, palette, dark)?.let { pngs[key] = it }
