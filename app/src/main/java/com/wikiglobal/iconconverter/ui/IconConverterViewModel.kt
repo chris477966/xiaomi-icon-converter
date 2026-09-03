@@ -21,6 +21,8 @@ import com.wikiglobal.iconconverter.hyperos.RawAppIconResolver
 import com.wikiglobal.iconconverter.hyperos.LawniconsProvider
 import com.wikiglobal.iconconverter.hyperos.LawniconsMatchType
 import com.wikiglobal.iconconverter.hyperos.MonetGlyphResult
+import com.wikiglobal.iconconverter.hyperos.MaterialOverrideStore
+import com.wikiglobal.iconconverter.hyperos.MaterialSourceOverride
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -69,6 +71,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val rootExecutor = SuThemeRootExecutor()
     private val rawIconResolver = RawAppIconResolver(application)
     private val lawniconsProvider = LawniconsProvider(application)
+    private val overrideStore = MaterialOverrideStore(application)
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
@@ -93,9 +96,11 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             _uiState.value.matches.forEach { match ->
                 val rawIcon = rawIconResolver.resolve(match.app)
                 val lawn = lawniconsProvider.match(match.app)
-                val native = MonochromeResolver.nativeOrNull(rawIcon.drawable)
-                val glyph = native ?: lawn.drawable?.let { drawable -> lawniconsProvider.alphaMask(drawable)?.let { mask -> MonetGlyphResult(mask, when(lawn.type){LawniconsMatchType.LAWNICONS_EXACT->MonetGlyphSource.LAWNICONS_EXACT;LawniconsMatchType.LAWNICONS_PACKAGE_FALLBACK->MonetGlyphSource.LAWNICONS_PACKAGE;LawniconsMatchType.LAWNICONS_ALIAS->MonetGlyphSource.LAWNICONS_ALIAS;else->MonetGlyphSource.UNAVAILABLE_NO_SOURCE}, null) } } ?: MonochromeResolver.resolve(rawIcon.drawable)
                 val key = match.app.packageName + "#" + match.app.launcherActivity
+                val native = MonochromeResolver.nativeOrNull(rawIcon.drawable)
+                val lawnGlyph = lawn.drawable?.let { drawable -> lawniconsProvider.alphaMask(drawable)?.let { mask -> MonetGlyphResult(mask, when(lawn.type){LawniconsMatchType.LAWNICONS_EXACT->MonetGlyphSource.LAWNICONS_EXACT;LawniconsMatchType.LAWNICONS_PACKAGE_FALLBACK->MonetGlyphSource.LAWNICONS_PACKAGE;LawniconsMatchType.LAWNICONS_ALIAS->MonetGlyphSource.LAWNICONS_ALIAS;else->MonetGlyphSource.UNAVAILABLE_NO_SOURCE}, null) } }
+                val auto = native ?: lawnGlyph ?: MonochromeResolver.resolve(rawIcon.drawable)
+                val glyph = when(overrideStore.get(key)){ MaterialSourceOverride.AUTO->auto; MaterialSourceOverride.NATIVE->native?:auto; MaterialSourceOverride.LAWNICONS->lawnGlyph?:auto; MaterialSourceOverride.AOSP_FORCE->MonochromeResolver.resolve(rawIcon.drawable); MaterialSourceOverride.KEEP->MonetGlyphResult(null,MonetGlyphSource.MANUAL_KEEP,null,MonetGlyphSource.MANUAL_KEEP) }
                 sources[key] = glyph.source
                 MonetGlyphRenderer.render(glyph, palette, dark)?.let { pngs[key] = it }
             }
@@ -103,6 +108,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
     }
+
+    fun setMaterialOverride(componentKey: String, override: MaterialSourceOverride) { overrideStore.set(componentKey, override); generateMonetPreview() }
 
     fun applyMonetToSystem() = viewModelScope.launch {
         val state = _uiState.value
