@@ -42,7 +42,8 @@ class MainActivity : ComponentActivity() {
                         onForceRestart = viewModel::forceRestartLauncher,
                         onThemeMode = viewModel::selectThemeMode,
                         onMonetPreview = viewModel::generateMonetPreview,
-                        onApplyMonet = viewModel::applyMonetToSystem
+                        onApplyMonet = viewModel::applyMonetToSystem,
+                        onMaterialOverride = viewModel::setMaterialOverride
                     )
                 }
             }
