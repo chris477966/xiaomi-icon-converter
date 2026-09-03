@@ -12,7 +12,7 @@ class MonetPreviewBytesTest {
         assertArrayEquals(bytes, state.generated.getValue("pkg#Activity"))
     }
     @Test fun `unavailable source has no generated png`() {
-        val state = MonetUiState(sources = mapOf("pkg#Activity" to MonetGlyphSource.UNAVAILABLE))
+        val state = MonetUiState(sources = mapOf("pkg#Activity" to MonetGlyphSource.UNAVAILABLE_NO_SOURCE))
         assertFalse(state.generated.containsKey("pkg#Activity"))
     }
 }

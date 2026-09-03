@@ -89,10 +89,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             _uiState.value.matches.forEach { match ->
                 val packGlyph = match.drawableName?.let { pack?.drawableLoader(it) }
                 val rawIcon = rawIconResolver.resolve(match.app)
-                val (glyph, source) = rawIcon.drawable?.let { MonochromeResolver.resolve(it, packGlyph) } ?: (packGlyph to if (packGlyph != null) MonetGlyphSource.ICON_PACK_GLYPH else MonetGlyphSource.UNAVAILABLE)
+                val glyph = MonochromeResolver.resolve(rawIcon.drawable, packGlyph)
                 val key = match.app.packageName + "#" + match.app.launcherActivity
-                sources[key] = source
-                if (glyph != null) pngs[key] = MonetGlyphRenderer.render(glyph, palette, dark)
+                sources[key] = glyph.source
+                MonetGlyphRenderer.render(glyph, palette, dark)?.let { pngs[key] = it }
             }
             MonetUiState(palette, dark, sources, pngs)
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
@@ -109,7 +109,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val original = rootExecutor.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("无法读取当前主题 icons")
             check(rootExecutor.copySystemFileTo(SuThemeRootExecutor.ACTIVE_ICONS, base).success) { "无法读取当前主题 icons" }
             check(HyperOs3ThemePatcher.sha256(base) == original.sha256) { "当前主题 SHA 校验失败" }
-            val replacements = state.matches.mapNotNull { match -> monet.generated[match.app.packageName + "#" + match.app.launcherActivity]?.let { HyperOs3IconReplacement(match.app.packageName, it) } }.distinctBy { it.entryName }
+            val replacements = state.matches.mapNotNull { match -> monet.generated[match.app.packageName + "#" + match.app.launcherActivity]?.let { match to it } }.groupBy { it.first.app.packageName }.flatMap { (pkg, values) ->
+                val different = values.map { it.second.contentHashCode() }.distinct().size > 1
+                values.flatMapIndexed { index, (match, png) -> buildList { if (index == 0) add(HyperOs3IconReplacement(pkg, png)); if (different) add(HyperOs3IconReplacement(pkg, png, XiaomiIconCompiler.activityPart(match.app.launcherActivity, pkg))) } }
+            }.distinctBy { it.entryName }
             check(replacements.isNotEmpty()) { "没有可应用的 Material You 图标" }
             val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-monet-icons.zip")
             HyperOs3ThemePatcher.patch(base, patched, replacements)
@@ -172,6 +175,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     }
 
     /** The only path that can invoke root writes; it is deliberately wired to the explicit Apply button. */
+    fun applyCurrentModeToSystem() { if (_uiState.value.themeMode == ThemeMode.MATERIAL_YOU) applyMonetToSystem() else applyIconPackToSystem() }
     fun applyIconPackToSystem() = viewModelScope.launch {
         val state = _uiState.value; val pack = state.iconPack ?: return@launch
         _uiState.value = state.copy(themeOperationRunning = true, message = null)

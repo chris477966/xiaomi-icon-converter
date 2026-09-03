@@ -52,7 +52,7 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
             items(state.matches, key = { it.app.packageName + it.app.launcherActivity }) { match -> AppRow(match, state.iconPack, state.monet.sources[match.app.packageName + "#" + match.app.launcherActivity], state.monet.generated[match.app.packageName + "#" + match.app.launcherActivity], state.themeMode == ThemeMode.MATERIAL_YOU) }
         }
         Button(onClick = onGenerate, enabled = state.iconPack != null && state.matchedCount > 0 && !state.loading, modifier = Modifier.fillMaxWidth()) { Text("生成 Xiaomi icons") }
-        Button(onClick = onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用到系统") }
+        if (state.themeMode == ThemeMode.ICON_PACK) Button(onClick = onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用原图标包") }
         Button(onClick = onRestoreTheme, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("恢复原主题") }
         Button(onClick = onRefreshCache, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("刷新图标缓存") }
         Button(onClick = onForceRestart, enabled = state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("强制重启桌面（仅在图标未刷新时使用）") }
@@ -64,7 +64,8 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
         val palette = state.monet.palette
         Text("Current Mode: ${if (state.monet.dark) "Dark" else "Light"}")
         if (palette != null) { val colors = palette.colors(state.monet.dark); Text("Background: #${"%08X".format(colors.first)}  Foreground: #${"%08X".format(colors.second)}") }
-        Text("Native ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Adaptive ${state.monet.sourceCount(MonetGlyphSource.ADAPTIVE_FOREGROUND)} · Icon Pack ${state.monet.sourceCount(MonetGlyphSource.ICON_PACK_GLYPH)} · Unavailable ${state.monet.sourceCount(MonetGlyphSource.UNAVAILABLE)}")
+        Text("Native ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Adaptive ${state.monet.sourceCount(MonetGlyphSource.SAFE_ADAPTIVE_FOREGROUND)} · Icon Pack ${state.monet.sourceCount(MonetGlyphSource.SAFE_ICON_PACK_GLYPH)} · Unavailable ${state.monet.sources.values.count { it.name.startsWith("UNAVAILABLE") }}")
+        Text("本次将修改：${state.monet.generated.size} · 保留当前主题：${state.monet.sources.size - state.monet.generated.size}")
         Button(onClick = onPreview, modifier = Modifier.fillMaxWidth()) { Text("生成 Material You 预览") }
         Button(onClick = onApply, enabled = state.rootAvailable && state.monet.generated.isNotEmpty() && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth()) { Text("应用 Material You 到系统") }
     }
@@ -100,10 +101,12 @@ fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerat
             Text(match.app.packageName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.app.launcherActivity, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(match.status.name, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-            monetSource?.let { Text(if (it == MonetGlyphSource.UNAVAILABLE) "Monet: 无法生成" else "Monet: ${it.name}", style = MaterialTheme.typography.labelSmall) }
+            monetSource?.let { Text(monetLabel(it), style = MaterialTheme.typography.labelSmall) }
         }
     }
 }
+
+private fun monetLabel(source: MonetGlyphSource) = when (source) { MonetGlyphSource.NATIVE_MONOCHROME -> "Monet: 官方单色图层"; MonetGlyphSource.SAFE_ADAPTIVE_FOREGROUND -> "Monet: 自适应前景"; MonetGlyphSource.SAFE_ICON_PACK_GLYPH -> "Monet: 图标包透明图层"; MonetGlyphSource.UNAVAILABLE_FULL_BLEED -> "无法生成：前景层覆盖整个图标"; MonetGlyphSource.UNAVAILABLE_OPAQUE_EDGES -> "无法生成：边缘不透明"; MonetGlyphSource.UNAVAILABLE_EXCESSIVE_COVERAGE -> "无法生成：覆盖比例过高"; MonetGlyphSource.UNAVAILABLE_EMPTY -> "无法生成：图标没有透明前景"; MonetGlyphSource.UNAVAILABLE_NO_SOURCE -> "无法生成：没有可用单色图层" }
 
 @Composable private fun MonetPreview(bytes: ByteArray?) {
     val bitmap = remember(bytes) { bytes?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) } }

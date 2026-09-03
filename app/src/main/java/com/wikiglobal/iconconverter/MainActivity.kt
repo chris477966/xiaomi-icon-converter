@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
                         onCheckHyperOs = viewModel::checkHyperOsCompatibility,
                         onExportReport = { saveReport.launch("hyperos3-theme-report.txt") },
                         onCheckRoot = viewModel::checkRoot,
-                        onApplyTheme = viewModel::applyIconPackToSystem,
+                        onApplyTheme = viewModel::applyCurrentModeToSystem,
                         onRestoreTheme = viewModel::restoreOriginalTheme,
                         onRefreshCache = viewModel::refreshIconCache,
                         onForceRestart = viewModel::forceRestartLauncher,
