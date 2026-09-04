@@ -1,8 +1,5 @@
 package com.wikiglobal.iconconverter.ui
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,7 +13,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,7 +43,7 @@ import com.wikiglobal.iconconverter.model.IconMatch
 }
 
 @Composable private fun SourceCard(state: ConverterUiState, select: () -> Unit) = Card(Modifier.fillMaxWidth().padding(16.dp)) { Row(Modifier.padding(16.dp), verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("图标包", style=MaterialTheme.typography.labelMedium); Text(state.iconPack?.displayName ?: "尚未选择", style=MaterialTheme.typography.titleMedium); state.iconPack?.let { Text("${it.mappings.size} mappings · 匹配 ${state.matchedCount} / ${state.launcherActivityCount}", style=MaterialTheme.typography.bodySmall) } }; TextButton(select){Text(if(state.iconPack==null)"选择" else "更换")} } }
-@Composable private fun IconPackScreen(state: ConverterUiState, export: () -> Unit, modifier: Modifier) = Column(modifier.padding(horizontal=16.dp)) { Text("匹配 ${state.matchedCount} · 未匹配 ${state.unmatchedCount} · 冲突 ${state.conflictCount}", style=MaterialTheme.typography.bodyMedium); if(state.iconPack==null) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("选择图标包后查看匹配结果")} else LazyColumn(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){items(state.matches){match->Card(Modifier.fillMaxWidth()){Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically){DrawablePreview(match.app.originalIcon,"当前");Spacer(Modifier.width(12.dp));match.drawableName?.let{state.iconPack.drawableLoader(it)}?.let{DrawablePreview(it,"目标")};Text(match.app.label,Modifier.padding(start=12.dp).weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)}}}; item { TextButton(export,Modifier.fillMaxWidth()){Text("导出 Xiaomi icons")} } } }
+@Composable private fun IconPackScreen(state: ConverterUiState, export: () -> Unit, modifier: Modifier) = Column(modifier.padding(horizontal=16.dp)) { Text("匹配 ${state.matchedCount} · 未匹配 ${state.unmatchedCount} · 冲突 ${state.conflictCount}", style=MaterialTheme.typography.bodyMedium); if(state.iconPack==null) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("选择图标包后查看匹配结果")} else LazyColumn(Modifier.fillMaxSize(),verticalArrangement=Arrangement.spacedBy(8.dp)){items(state.matches,key={componentPreviewKey(it.app.packageName,it.app.launcherActivity)},contentType={"icon-pack-match"}){match->val key=componentPreviewKey(match.app.packageName,match.app.launcherActivity);Card(Modifier.fillMaxWidth()){Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically){CachedPreview(state.iconPreviews.original[key],"当前",56.dp);Spacer(Modifier.width(12.dp));state.iconPreviews.target[key]?.let{CachedPreview(it,"目标",56.dp);Spacer(Modifier.width(12.dp))};Text(match.app.label,Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)}}}; item { TextButton(export,Modifier.fillMaxWidth()){Text("导出 Xiaomi icons")} } } }
 @Composable private fun MaterialYouScreen(state: ConverterUiState, generate: () -> Unit, setOverride: (String, MaterialSourceOverride) -> Unit, exportReport: () -> Unit, setStyle: (MaterialStyle) -> Unit, modifier: Modifier) {
     var selectedKey by remember { mutableStateOf<String?>(null) }
     val selected = state.matches.firstOrNull { it.app.packageName + "#" + it.app.launcherActivity == selectedKey }
@@ -72,10 +71,10 @@ import com.wikiglobal.iconconverter.model.IconMatch
         } }
         if(state.monet.generated.isEmpty()) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Button(generate){Text("生成预览")}}
         else LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            items(state.matches){match ->
-                val key=match.app.packageName+"#"+match.app.launcherActivity
-                Column(Modifier.clickable { selectedKey=key }, horizontalAlignment=Alignment.CenterHorizontally) {
-                    if(state.monet.generated.containsKey(key)) MonetPreview(state.monet.generated[key]) else DrawablePreview(match.app.originalIcon,"当前")
+            items(state.matches,key={componentPreviewKey(it.app.packageName,it.app.launcherActivity)},contentType={"material-app"}){match ->
+                val key=componentPreviewKey(match.app.packageName,match.app.launcherActivity)
+                Column(Modifier.height(120.dp).clickable { selectedKey=key }, horizontalAlignment=Alignment.CenterHorizontally) {
+                    if(state.monet.generated.containsKey(key)) CachedPreview(state.monet.previewBitmaps[key],"Material 预览",PreviewBitmapPipeline.MATERIAL_PREVIEW_DP.dp) else CachedPreview(state.iconPreviews.original[key],"当前",PreviewBitmapPipeline.MATERIAL_PREVIEW_DP.dp)
                     Text(match.app.label,maxLines=1,overflow=TextOverflow.Ellipsis,textAlign=TextAlign.Center,style=MaterialTheme.typography.labelMedium)
                     if(!state.monet.generated.containsKey(key)) Text("保留",style=MaterialTheme.typography.labelSmall)
                 }
@@ -116,5 +115,4 @@ private fun lawniconsProviderLabel(status: LawniconsProviderStatus) = when(statu
 private fun shapeLabel(shape: MaterialIconShape) = when(shape) { MaterialIconShape.HYPEROS -> "HyperOS"; MaterialIconShape.CIRCLE -> "圆形"; MaterialIconShape.SQUIRCLE -> "Squircle"; MaterialIconShape.ROUNDED_SQUARE -> "圆角方形" }
 @Composable private fun SeedColorDialog(seed: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) { var value by remember { mutableStateOf("#%06X".format(seed and 0xFFFFFF)) }; AlertDialog(onDismissRequest=onDismiss,title={Text("自定义颜色")},text={OutlinedTextField(value,{value=it},label={Text("#RRGGBB")},singleLine=true)},confirmButton={TextButton({value.removePrefix("#").toLongOrNull(16)?.takeIf{it<=0xFFFFFF}?.let{onConfirm((0xFF000000L or it).toInt())}}){Text("应用")}},dismissButton={TextButton(onDismiss){Text("取消")}}) }
 @Composable private fun SystemToolsScreen(modifier:Modifier,state:ConverterUiState,check:()->Unit,restore:()->Unit,refresh:()->Unit,restart:()->Unit,diagnose:()->Unit,export:()->Unit)=LazyColumn(modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("系统工具",style=MaterialTheme.typography.titleLarge)};item{Text("Root：${if(state.rootAvailable)"可用" else "未检查"}")};item{Button(check,Modifier.fillMaxWidth()){Text("检查 Root")}};item{Button(restore,Modifier.fillMaxWidth(),enabled=state.rootAvailable){Text("恢复原主题")}};item{Button(refresh,Modifier.fillMaxWidth(),enabled=state.rootAvailable){Text("刷新图标缓存")}};item{Button(restart,Modifier.fillMaxWidth(),enabled=state.rootAvailable,colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error)){Text("强制重启桌面")}};item{HorizontalDivider()};item{Button(diagnose,Modifier.fillMaxWidth()){Text("HyperOS 3 兼容性诊断")}};item{Button(export,Modifier.fillMaxWidth(),enabled=state.diagnosticReport!=null){Text("导出诊断报告")}}}
-@Composable private fun MonetPreview(bytes:ByteArray?){val b=remember(bytes){bytes?.let{android.graphics.BitmapFactory.decodeByteArray(it,0,it.size)}};if(b!=null)Image(BitmapPainter(b.asImageBitmap()),"Material 预览",Modifier.size(56.dp))else Surface(Modifier.size(56.dp),shape=MaterialTheme.shapes.small,tonalElevation=1.dp){Box(contentAlignment=Alignment.Center){Text("保留",style=MaterialTheme.typography.labelSmall)}}}
-@Composable private fun DrawablePreview(d:Drawable,description:String){val b=remember(d){Bitmap.createBitmap(56,56,Bitmap.Config.ARGB_8888).also{val o=d.bounds;d.setBounds(0,0,56,56);d.draw(Canvas(it));d.bounds=o}};Image(BitmapPainter(b.asImageBitmap()),description,Modifier.size(56.dp))}
+@Composable private fun CachedPreview(bitmap:android.graphics.Bitmap?,description:String,size:androidx.compose.ui.unit.Dp){if(bitmap!=null){val image=remember(bitmap){bitmap.asImageBitmap()};val painter=remember(image){BitmapPainter(image,filterQuality=FilterQuality.High)};Image(painter,description,Modifier.size(size),contentScale=ContentScale.Fit)}else Surface(Modifier.size(size),shape=MaterialTheme.shapes.small,tonalElevation=1.dp){Box(contentAlignment=Alignment.Center){Text("保留",style=MaterialTheme.typography.labelSmall)}}}

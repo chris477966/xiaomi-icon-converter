@@ -73,7 +73,7 @@ data class MaterialSourceDiagnostic(
     val lawniconsProviderStatus: LawniconsProviderStatus, val lawniconsMapped: Boolean, val lawniconsDrawableId: Int,
     val aospAdaptiveAvailable: Boolean, val aospCandidateSource: String?, val finalSource: MonetGlyphSource
 )
-data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0) {
+data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0, val previewBitmaps: Map<String, android.graphics.Bitmap> = emptyMap()) {
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
@@ -82,6 +82,7 @@ data class ConverterUiState(
     val loading: Boolean = true,
     val iconPack: IconPack? = null,
     val matches: List<IconMatch> = emptyList(),
+    val iconPreviews: IconPackPreviewBitmaps = IconPackPreviewBitmaps(),
     val launcherActivityCount: Int = 0,
     val uniquePackageCount: Int = 0,
     val diagnosticReport: ThemeCompatibilityReport? = null,
@@ -165,7 +166,11 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 glyphDiskCache.save(resolved.key, resolved.glyph)
                 MaterialStyledGlyphRenderer.render(resolved.glyph, palette, dark, style.shape)?.let { pngs[resolved.key] = it }
             }
-            MonetUiState(System.nanoTime(), palette, dark, sources, pngs, availability, overrides, diagnostics, providerState, style, System.currentTimeMillis())
+            MonetUiState(
+                System.nanoTime(), palette, dark, sources, pngs, availability, overrides,
+                diagnostics, providerState, style, System.currentTimeMillis(),
+                PreviewBitmapPipeline.decodeMaterialPngs(pngs)
+            )
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
     }
@@ -192,7 +197,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 glyphDiskCache.save(componentKey, resolved.glyph)
                 MaterialStyledGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark, monet.style.shape)?.let { put(componentKey, it) } ?: remove(componentKey)
             }
-            monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
+            val previews = monet.previewBitmaps.toMutableMap().apply {
+                generated[componentKey]?.let { PreviewBitmapPipeline.decodeMaterialPng(it) }?.let { put(componentKey, it) } ?: remove(componentKey)
+            }
+            monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, previewBitmaps = previews, availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
         } }.onSuccess { updated ->
             _uiState.value = _uiState.value.copy(monet = updated, message = "已更新该应用的 Material You 预览")
         }.onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "更新 Material You 预览失败") }
@@ -246,9 +254,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         if (!current.available || materialGlyphCache.isEmpty()) {
             _uiState.value = _uiState.value.copy(monet = current.copy(style = style)); return@launch
         }
-        val palette = MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) ?: return@launch
+        val palette = withContext(Dispatchers.Default) { MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) } ?: return@launch
         val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape)?.let { key to it } }.toMap() }
-        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
+        val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
+        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, previewBitmaps = previews, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
     }
 
     /**
@@ -260,7 +269,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val current = _uiState.value.monet
         if (current.style.colorMode != MaterialColorMode.SYSTEM_MONET ||
             !current.available || materialGlyphCache.isEmpty()) return@launch
-        val newPalette = MonetPaletteReader.read() ?: return@launch
+        val newPalette = withContext(Dispatchers.Default) { MonetPaletteReader.read() } ?: return@launch
         if (!MaterialPreviewRefreshPolicy.shouldRerender(
                 current.style.colorMode,
                 current.palette?.hash(),
@@ -273,12 +282,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                     ?.let { key to it }
             }.toMap()
         }
+        val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
         // Preserve source/override/availability/diagnostic maps verbatim: refreshing a
         // palette is rendering work only and must not change source policy.
         _uiState.value = _uiState.value.copy(monet = current.copy(
             generationId = System.nanoTime(),
             palette = newPalette,
             generated = rendered,
+            previewBitmaps = previews,
             timestamp = System.currentTimeMillis()
         ))
     }
@@ -312,11 +323,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
 
     private fun reloadApps() = viewModelScope.launch {
         val apps = withContext(Dispatchers.IO) { appsRepository.launcherApps() }
+        val matches = apps.map { IconMatch(it, MatchStatus.UNMATCHED, com.wikiglobal.iconconverter.model.MatchConfidence.NONE) }
+        val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(matches, null) }
         _uiState.value = _uiState.value.copy(
             loading = false,
             launcherActivityCount = apps.size,
             uniquePackageCount = apps.map { it.packageName }.distinct().size,
-            matches = apps.map { IconMatch(it, MatchStatus.UNMATCHED, com.wikiglobal.iconconverter.model.MatchConfidence.NONE) }
+            matches = matches,
+            iconPreviews = previews
         )
     }
 
@@ -329,18 +343,35 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 Triple(pack, apps, IconMatcher.match(apps, pack.mappings, pack.calendars))
             }
         }.onSuccess { (pack, apps, matches) ->
+            viewModelScope.launch {
+                val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(matches, pack) }
             _uiState.value = _uiState.value.copy(
                 loading = false,
                 iconPack = pack,
                 matches = matches,
+                iconPreviews = previews,
                 launcherActivityCount = apps.size,
                 uniquePackageCount = apps.map { it.packageName }.distinct().size,
                 monet = MonetUiState(),
                 message = null
             )
+            }
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "解析 APK 失败")
         }
+    }
+
+    /** Runs once after app/pack changes; no Lazy item may load or rasterize a Drawable. */
+    private fun prepareIconPackPreviews(matches: List<IconMatch>, pack: IconPack?): IconPackPreviewBitmaps {
+        val original = linkedMapOf<String, android.graphics.Bitmap>()
+        val target = linkedMapOf<String, android.graphics.Bitmap>()
+        matches.forEach { match ->
+            val key = componentPreviewKey(match.app.packageName, match.app.launcherActivity)
+            original[key] = PreviewBitmapPipeline.rasterizeIcon(match.app.originalIcon)
+            match.drawableName?.let { name -> pack?.drawableLoader?.invoke(name) }
+                ?.let { target[key] = PreviewBitmapPipeline.rasterizeIcon(it) }
+        }
+        return IconPackPreviewBitmaps(original, target)
     }
 
     fun generateTo(uri: Uri) = viewModelScope.launch {

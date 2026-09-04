@@ -24,4 +24,16 @@ class MaterialPreviewRefreshPolicyTest {
     @Test fun `unavailable palette means no preview refresh`() {
         assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "old", null, true))
     }
+
+    @Test fun `PREVIEW_REFRESH_NO_ROOT_ACCESS_OR_SOURCE_DISCOVERY`() {
+        val plan = MaterialPreviewRefreshPolicy.plan(MaterialColorMode.SYSTEM_MONET, "old", "new", true)
+        assertFalse(plan.rootAccess)
+        assertFalse(plan.sourceDiscovery)
+        assertTrue(plan.rerender)
+    }
+
+    @Test fun `WALLPAPER_REFRESH_SINGLE_STATE_COMMIT`() {
+        assertTrue(MaterialPreviewRefreshPolicy.plan(MaterialColorMode.SYSTEM_MONET, "old", "new", true).stateCommits == 1)
+        assertTrue(MaterialPreviewRefreshPolicy.plan(MaterialColorMode.SYSTEM_MONET, "same", "same", true).stateCommits == 0)
+    }
 }

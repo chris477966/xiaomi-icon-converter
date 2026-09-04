@@ -10,13 +10,17 @@ import java.io.ByteArrayOutputStream
 object IconRenderer {
     const val TARGET_SIZE = 256
     fun renderPng(drawable: Drawable, size: Int = TARGET_SIZE): ByteArray {
+        return bitmapToPng(renderBitmap(drawable, size))
+    }
+    /** Rasterization is deliberately invoked by background preview preparation, never by Compose items. */
+    fun renderBitmap(drawable: Drawable, size: Int = TARGET_SIZE): Bitmap {
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap).apply { drawColor(Color.TRANSPARENT) }
-        val original = drawable.bounds
+        val original = android.graphics.Rect(drawable.bounds)
         drawable.setBounds(0, 0, size, size)
         drawable.draw(canvas)
         drawable.bounds = original
-        return bitmapToPng(bitmap)
+        return bitmap
     }
     fun bitmapToPng(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() }
 }
