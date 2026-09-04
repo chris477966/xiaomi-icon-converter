@@ -19,12 +19,17 @@ import com.wikiglobal.iconconverter.hyperos.MonetPalette
 import com.wikiglobal.iconconverter.hyperos.MonetPaletteReader
 import com.wikiglobal.iconconverter.hyperos.MonochromeResolver
 import com.wikiglobal.iconconverter.hyperos.RawAppIconResolver
-import com.wikiglobal.iconconverter.hyperos.LawniconsProvider
-import com.wikiglobal.iconconverter.hyperos.LawniconsMatchType
+import com.wikiglobal.iconconverter.hyperos.RawIconCandidate
+import com.wikiglobal.iconconverter.hyperos.RawIconSource
+import com.wikiglobal.iconconverter.hyperos.LawniconsThemedProvider
+import com.wikiglobal.iconconverter.hyperos.LawniconsProviderState
+import com.wikiglobal.iconconverter.hyperos.LawniconsProviderStatus
 import com.wikiglobal.iconconverter.hyperos.MonetGlyphResult
 import com.wikiglobal.iconconverter.hyperos.MaterialOverrideStore
 import com.wikiglobal.iconconverter.hyperos.MaterialSourceOverride
 import com.wikiglobal.iconconverter.hyperos.AospMonochromeGenerator
+import com.wikiglobal.iconconverter.hyperos.MaterialCandidateDiscovery
+import com.wikiglobal.iconconverter.hyperos.MaterialSourcePriority
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -41,7 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class ThemeMode { ICON_PACK, MATERIAL_YOU }
-data class MaterialSourceAvailability(val native: Boolean = false, val lawnicons: Boolean = false, val aosp: Boolean = false) {
+data class MaterialSourceAvailability(val native: Boolean = false, val lawnicons: Boolean = false, val aosp: Boolean = false, val lawniconsProviderStatus: LawniconsProviderStatus = LawniconsProviderStatus.UNINITIALIZED) {
     fun supports(override: MaterialSourceOverride) = when (override) {
         MaterialSourceOverride.AUTO, MaterialSourceOverride.KEEP -> true
         MaterialSourceOverride.NATIVE -> native
@@ -49,7 +54,14 @@ data class MaterialSourceAvailability(val native: Boolean = false, val lawnicons
         MaterialSourceOverride.AOSP_FORCE -> aosp
     }
 }
-data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val timestamp: Long = 0) {
+data class MaterialSourceDiagnostic(
+    val packageName: String, val launcherActivity: String,
+    val rawActivityType: String, val rawApplicationType: String,
+    val nativeAvailable: Boolean, val nativeCandidateSource: String?,
+    val lawniconsProviderStatus: LawniconsProviderStatus, val lawniconsMapped: Boolean, val lawniconsDrawableId: Int,
+    val aospAdaptiveAvailable: Boolean, val aospCandidateSource: String?, val finalSource: MonetGlyphSource
+)
+data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val timestamp: Long = 0) {
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
@@ -80,7 +92,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val appsRepository = InstalledAppsRepository(application)
     private val rootExecutor = SuThemeRootExecutor()
     private val rawIconResolver = RawAppIconResolver(application)
-    private val lawniconsProvider = LawniconsProvider(application)
+    private val lawniconsProvider = LawniconsThemedProvider(application)
     private val overrideStore = MaterialOverrideStore(application)
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
@@ -100,7 +112,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val key: String,
         val glyph: MonetGlyphResult,
         val availability: MaterialSourceAvailability,
-        val override: MaterialSourceOverride
+        val override: MaterialSourceOverride,
+        val diagnostic: MaterialSourceDiagnostic
     )
 
     /** Previews exactly the 250px PNGs that Material You Apply will patch into the current base archive. */
@@ -113,15 +126,17 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val pngs = linkedMapOf<String, ByteArray>()
             val availability = linkedMapOf<String, MaterialSourceAvailability>()
             val overrides = linkedMapOf<String, MaterialSourceOverride>()
-            lawniconsProvider.load()
+            val diagnostics = linkedMapOf<String, MaterialSourceDiagnostic>()
+            val providerState = lawniconsProvider.load()
             _uiState.value.matches.forEach { match ->
                 val resolved = resolveMaterialComponent(match)
                 sources[resolved.key] = resolved.glyph.source
                 availability[resolved.key] = resolved.availability
                 overrides[resolved.key] = resolved.override
+                diagnostics[resolved.key] = resolved.diagnostic
                 MonetGlyphRenderer.render(resolved.glyph, palette, dark)?.let { pngs[resolved.key] = it }
             }
-            MonetUiState(System.nanoTime(), palette, dark, sources, pngs, availability, overrides, System.currentTimeMillis())
+            MonetUiState(System.nanoTime(), palette, dark, sources, pngs, availability, overrides, diagnostics, providerState, System.currentTimeMillis())
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
     }
@@ -137,15 +152,16 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val monet = snapshot.monet.takeIf { it.available } ?: return@launch
         val match = snapshot.matches.firstOrNull { componentKey(it) == componentKey } ?: return@launch
         runCatching { withContext(Dispatchers.Default) {
-            lawniconsProvider.load()
+            val providerState = lawniconsProvider.load()
             val resolved = resolveMaterialComponent(match)
             val sources = monet.sources.toMutableMap().apply { put(componentKey, resolved.glyph.source) }
             val availability = monet.availability.toMutableMap().apply { put(componentKey, resolved.availability) }
             val overrides = monet.overrides.toMutableMap().apply { put(componentKey, resolved.override) }
+            val diagnostics = monet.diagnostics.toMutableMap().apply { put(componentKey, resolved.diagnostic) }
             val generated = monet.generated.toMutableMap().apply {
                 MonetGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark)?.let { put(componentKey, it) } ?: remove(componentKey)
             }
-            monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, availability = availability, overrides = overrides, timestamp = System.currentTimeMillis())
+            monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
         } }.onSuccess { updated ->
             _uiState.value = _uiState.value.copy(monet = updated, message = "已更新该应用的 Material You 预览")
         }.onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "更新 Material You 预览失败") }
@@ -153,20 +169,21 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
 
     private fun resolveMaterialComponent(match: IconMatch): ResolvedMaterialComponent {
         val key = componentKey(match)
-        val rawIcon = rawIconResolver.resolve(match.app)
-        val native = MonochromeResolver.nativeOrNull(rawIcon.drawable)
-        val lawn = lawniconsProvider.match(match.app)
-        val lawnGlyph = lawn.drawable?.let { drawable -> lawniconsProvider.alphaMask(drawable)?.let { mask ->
-            MonetGlyphResult(mask, when (lawn.type) {
-                LawniconsMatchType.LAWNICONS_EXACT -> MonetGlyphSource.LAWNICONS_EXACT
-                LawniconsMatchType.LAWNICONS_PACKAGE_FALLBACK -> MonetGlyphSource.LAWNICONS_PACKAGE
-                LawniconsMatchType.LAWNICONS_ALIAS -> MonetGlyphSource.LAWNICONS_ALIAS
-                else -> MonetGlyphSource.UNAVAILABLE_NO_SOURCE
-            }, null)
-        } }
-        val aosp = (rawIcon.drawable as? AdaptiveIconDrawable)?.let(AospMonochromeGenerator::generate)?.takeIf { it.alphaMask != null }
-        val availability = MaterialSourceAvailability(native != null, lawnGlyph != null, aosp != null)
-        val auto = native ?: lawnGlyph ?: aosp ?: MonochromeResolver.resolve(rawIcon.drawable)
+        val candidates = rawIconResolver.candidates(match.app)
+        val nativeCandidate = MaterialCandidateDiscovery.firstAvailable(candidates.inPriorityOrder.map { candidate ->
+            candidate.source to MonochromeResolver.nativeOrNull(candidate.drawable)?.takeIf { it.alphaMask != null }
+        })
+        val native = nativeCandidate?.second
+        val themed = lawniconsProvider.lookup(match.app.packageName)
+        val lawnGlyph = themed?.let { entry -> lawniconsProvider.drawable(entry)?.let { drawable -> lawniconsProvider.alphaMask(drawable)?.let { mask -> MonetGlyphResult(mask, MonetGlyphSource.LAWNICONS_PACKAGE, null) } } }
+        val aospCandidate = MaterialCandidateDiscovery.firstAvailable(candidates.inPriorityOrder.map { candidate ->
+            candidate.source to (candidate.drawable as? AdaptiveIconDrawable)?.let(AospMonochromeGenerator::generate)?.takeIf { it.alphaMask != null }
+        })
+        val aosp = aospCandidate?.second
+        val providerState = lawniconsProvider.state
+        val availability = MaterialSourceAvailability(native != null, lawnGlyph != null, aosp != null, providerState.status)
+        val auto = MaterialSourcePriority.automatic(native, lawnGlyph, aosp)
+            ?: MonetGlyphResult(null, MonetGlyphSource.UNAVAILABLE_LEGACY, null, MonetGlyphSource.UNAVAILABLE_LEGACY)
         val requested = overrideStore.get(key)
         val glyph = when (requested) {
             MaterialSourceOverride.AUTO -> auto
@@ -178,10 +195,18 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         // The sheet hides unavailable choices. If a stale persisted override becomes unavailable,
         // AUTO is selected safely rather than attempting a different forced source.
         val effectiveOverride = if (availability.supports(requested)) requested else MaterialSourceOverride.AUTO
-        return ResolvedMaterialComponent(key, glyph, availability, effectiveOverride)
+        val diagnostic = MaterialSourceDiagnostic(
+            match.app.packageName, match.app.launcherActivity,
+            candidates.activityResource.drawable.typeName(), candidates.applicationResource.drawable.typeName(),
+            native != null, nativeCandidate?.first?.name,
+            providerState.status, themed != null, themed?.drawableResourceId ?: 0,
+            aosp != null, aospCandidate?.first?.name, glyph.source
+        )
+        return ResolvedMaterialComponent(key, glyph, availability, effectiveOverride, diagnostic)
     }
 
     private fun componentKey(match: IconMatch) = match.app.packageName + "#" + match.app.launcherActivity
+    private fun android.graphics.drawable.Drawable?.typeName() = this?.javaClass?.simpleName ?: "NOT_FOUND"
 
     fun applyMonetToSystem() = viewModelScope.launch {
         val state = _uiState.value
@@ -323,5 +348,36 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             }
         }.onSuccess { _uiState.value = _uiState.value.copy(diagnosticMessage = "诊断报告已导出") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(diagnosticMessage = error.message ?: "导出失败") }
+    }
+
+    /** Exports provider/candidate decisions only; no theme archive or PNG bytes leave the app. */
+    fun exportMaterialSourceReport(uri: Uri) = viewModelScope.launch {
+        val monet = _uiState.value.monet
+        if (monet.diagnostics.isEmpty()) return@launch
+        runCatching { withContext(Dispatchers.IO) {
+            val report = buildString {
+                appendLine("MATERIAL_SOURCE_REPORT")
+                appendLine("LAWNICONS_PROVIDER=${monet.lawniconsProvider.status}")
+                appendLine("LAWNICONS_ENTRY_COUNT=${monet.lawniconsProvider.entryCount}")
+                monet.lawniconsProvider.lastError?.let { appendLine("LAWNICONS_ERROR=$it") }
+                monet.diagnostics.toSortedMap().forEach { (_, item) ->
+                    appendLine()
+                    appendLine("PACKAGE=${item.packageName}")
+                    appendLine("LAUNCHER_ACTIVITY=${item.launcherActivity}")
+                    appendLine("RAW_ACTIVITY_TYPE=${item.rawActivityType}")
+                    appendLine("RAW_APPLICATION_TYPE=${item.rawApplicationType}")
+                    appendLine("NATIVE_AVAILABLE=${item.nativeAvailable}")
+                    appendLine("NATIVE_CANDIDATE_SOURCE=${item.nativeCandidateSource ?: "NONE"}")
+                    appendLine("LAWNICONS_PROVIDER_STATUS=${item.lawniconsProviderStatus}")
+                    appendLine("LAWNICONS_MAPPED=${item.lawniconsMapped}")
+                    appendLine("LAWNICONS_DRAWABLE_ID=${item.lawniconsDrawableId}")
+                    appendLine("AOSP_ADAPTIVE_AVAILABLE=${item.aospAdaptiveAvailable}")
+                    appendLine("AOSP_CANDIDATE_SOURCE=${item.aospCandidateSource ?: "NONE"}")
+                    appendLine("FINAL_SOURCE=${item.finalSource}")
+                }
+            }
+            getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(report) } ?: error("无法写入 Material 来源报告")
+        } }.onSuccess { _uiState.value = _uiState.value.copy(message = "Material 来源诊断已导出") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "导出失败") }
     }
 }
