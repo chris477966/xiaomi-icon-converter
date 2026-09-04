@@ -35,16 +35,25 @@ object WallpaperMonetScheduler {
 /** Wallpaper event worker: it never discovers a new provider source; it only recolors cached masks. */
 class WallpaperMonetWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params){
     override suspend fun doWork():Result{
-        val styleStore=MaterialStyleStore(applicationContext); val installedStore=MaterialInstalledStateStore(applicationContext); var installed=installedStore.load(); val style=styleStore.get()
-        if(!installed.isMaterialInstalled||!installed.followWallpaperMonet||style.colorMode!=MaterialColorMode.SYSTEM_MONET)return Result.success()
+        val styleStore=MaterialStyleStore(applicationContext); val installedStore=MaterialInstalledStateStore(applicationContext); val installed=installedStore.load(); val style=styleStore.get()
+        if(style.colorMode!=MaterialColorMode.SYSTEM_MONET||!style.followWallpaperMonet||!installed.isMaterialInstalled)return Result.success()
         var palette:MonetPalette?=null
         for (attempt in 0 until 5) { palette=MonetPaletteReader.read(); if(palette?.hash()!=installed.paletteHash) break; if(attempt<4) delay(3000) }
-        val current=palette?:return Result.success();if(current.hash()==installed.paletteHash){installedStore.save(installed.copy(status=AutoRecolorStatus.NO_ACTION));return Result.success()}
-        val root=SuThemeRootExecutor();if(!root.isRootAvailable()){installedStore.save(installed.copy(status=AutoRecolorStatus.ROOT_UNAVAILABLE));return Result.success()}
-        val cache=MaterialGlyphCache(applicationContext).load();if(cache.isEmpty()){installedStore.save(installed.copy(status=AutoRecolorStatus.CACHE_UNAVAILABLE));return Result.success()}
+        val current=palette?:return Result.success()
+        val root=SuThemeRootExecutor(); val cache=MaterialGlyphCache(applicationContext).load(); val rootAvailable=root.isRootAvailable()
+        val currentThemeSha=if(rootAvailable)root.inspect(SuThemeRootExecutor.ACTIVE_ICONS)?.sha256 else null
+        val decision=MaterialAutoRecolorCoordinator.decide(MaterialAutoRecolorInput(style,installed,current.hash(),currentThemeSha,rootAvailable,cache.isNotEmpty()))
+        when(decision){
+            MaterialAutoRecolorDecision.PALETTE_UNCHANGED->{installedStore.save(installed.copy(status=AutoRecolorStatus.NO_ACTION));return Result.success()}
+            MaterialAutoRecolorDecision.ROOT_UNAVAILABLE->{installedStore.save(installed.copy(status=AutoRecolorStatus.ROOT_UNAVAILABLE));return Result.success()}
+            MaterialAutoRecolorDecision.CACHE_UNAVAILABLE->{installedStore.save(installed.copy(status=AutoRecolorStatus.CACHE_UNAVAILABLE));return Result.success()}
+            MaterialAutoRecolorDecision.EXTERNAL_THEME_CHANGED->{styleStore.set(style.copy(followWallpaperMonet=false));installedStore.save(installed.copy(status=AutoRecolorStatus.AUTO_RECOLOR_BLOCKED_EXTERNAL_CHANGE));return Result.success()}
+            MaterialAutoRecolorDecision.DISABLED,MaterialAutoRecolorDecision.NO_MATERIAL_INSTALL->return Result.success()
+            MaterialAutoRecolorDecision.RECOLOR->Unit
+        }
         return runCatching{
             val glyphCache=MaterialGlyphCache(applicationContext);val replacements=cache.mapNotNull{item->glyphCache.mask(item)?.let{mask->MaterialStyledGlyphRenderer.render(MonetGlyphResult(mask,item.source,null),current,installed.dark,style.shape)?.let{png->item to png}}}.groupBy{it.first.key.substringBefore('#')}.flatMap{(pkg,values)->val diff=values.map{it.second.contentHashCode()}.distinct().size>1;values.flatMapIndexed{index,(item,png)->buildList{if(index==0)add(HyperOs3IconReplacement(pkg,png));if(diff)add(HyperOs3IconReplacement(pkg,png,XiaomiIconCompiler.activityPart(item.key.substringAfter('#'),pkg)))}}}.distinctBy{it.entryName}
             check(replacements.isNotEmpty());val base=File(applicationContext.filesDir,"staging/wallpaper-base-icons.zip").also{it.parentFile?.mkdirs()};check(root.copySystemFileTo(SuThemeRootExecutor.ACTIVE_ICONS,base).success);val patched=File(applicationContext.filesDir,"staging/wallpaper-patched-icons.zip");HyperOs3ThemePatcher.patch(base,patched,replacements);val manager=ThemeBackupManager(applicationContext.filesDir,root,FileThemeSessionStore(File(applicationContext.filesDir,"theme-session.txt")));val session=manager.install(patched,"system-monet","MATERIAL_YOU",current.hash()).getOrThrow();root.refreshIconCache();installedStore.save(installed.copy(paletteHash=current.hash(),themeArchiveShaAfterInstall=session.lastInstalledSha256.orEmpty(),generatedAt=System.currentTimeMillis(),status=AutoRecolorStatus.UPDATED));Result.success()
-        }.getOrElse{error->val external=error.message?.contains("本工具之外") == true;if(external){styleStore.set(style.copy(followWallpaperMonet=false));installedStore.save(installed.copy(followWallpaperMonet=false,status=AutoRecolorStatus.AUTO_RECOLOR_BLOCKED_EXTERNAL_CHANGE))}else installedStore.save(installed.copy(status=AutoRecolorStatus.FAILED));Result.success()}
+        }.getOrElse{installedStore.save(installed.copy(status=AutoRecolorStatus.FAILED));Result.success()}
     }
 }

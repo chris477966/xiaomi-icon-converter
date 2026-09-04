@@ -23,6 +23,8 @@ class MaterialStyleTest {
         assertEquals(12f, MaterialIconShapeRenderer.boundsValues[0])
         assertEquals(238f, MaterialIconShapeRenderer.boundsValues[2])
     }
+    @Test fun `squircle uses Lawnchair control distance point`() { assertEquals(.2f, MaterialIconShapeRenderer.LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE) }
+    @Test fun `rounded square uses Lawnchair scale`() { assertEquals(.6f, MaterialIconShapeRenderer.LAWNCHAIR_ROUNDED_SQUARE_SCALE) }
     @Test fun `shape changes do not alter source maps`() {
         val sources = mapOf("p#A" to MonetGlyphSource.LAWNICONS_PACKAGE)
         assertEquals(sources, sources)

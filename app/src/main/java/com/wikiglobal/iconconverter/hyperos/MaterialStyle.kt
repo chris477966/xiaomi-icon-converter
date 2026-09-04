@@ -45,24 +45,26 @@ object MaterialPaletteFactory {
 
 /** Lawnchair-inspired geometric masks rendered into a static 250px HyperOS PNG. */
 object MaterialIconShapeRenderer {
+    const val LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE = .2f
+    const val LAWNCHAIR_ROUNDED_SQUARE_SCALE = .6f
     val boundsValues = floatArrayOf(12f, 12f, 238f, 238f)
     val bounds = RectF(boundsValues[0], boundsValues[1], boundsValues[2], boundsValues[3])
     fun drawBackground(canvas: Canvas, shape: MaterialIconShape, paint: Paint) {
         when (shape) {
             MaterialIconShape.HYPEROS -> canvas.drawRoundRect(bounds, 58f, 58f, paint)
             MaterialIconShape.CIRCLE -> canvas.drawOval(bounds, paint)
-            MaterialIconShape.ROUNDED_SQUARE -> canvas.drawRoundRect(bounds, 36f, 36f, paint)
+            MaterialIconShape.ROUNDED_SQUARE -> canvas.drawRoundRect(bounds, bounds.width() * (1f - LAWNCHAIR_ROUNDED_SQUARE_SCALE) / 2f, bounds.width() * (1f - LAWNCHAIR_ROUNDED_SQUARE_SCALE) / 2f, paint)
             MaterialIconShape.SQUIRCLE -> canvas.drawPath(squircle(bounds), paint)
         }
     }
-    /** Superellipse-like cubic path; unlike a rounded rect it has continuous curvature at all quadrants. */
+    /** Lawnchair Squircle's normalized 0.2 control distance, transformed into HyperOS bounds. */
     fun squircle(rect: RectF): Path {
-        val c = 0.551915024494f; val r = minOf(rect.width(), rect.height()) / 2f; val cx = rect.centerX(); val cy = rect.centerY()
+        val cx = rect.centerX(); val cy = rect.centerY(); val dx=rect.width()*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE;val dy=rect.height()*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE
         return Path().apply {
-            moveTo(cx, rect.top); cubicTo(cx + c * r, rect.top, rect.right, cy - c * r, rect.right, cy)
-            cubicTo(rect.right, cy + c * r, cx + c * r, rect.bottom, cx, rect.bottom)
-            cubicTo(cx - c * r, rect.bottom, rect.left, cy + c * r, rect.left, cy)
-            cubicTo(rect.left, cy - c * r, cx - c * r, rect.top, cx, rect.top); close()
+            moveTo(cx, rect.top); cubicTo(rect.right-dx,rect.top,rect.right,cy-dy,rect.right,cy)
+            cubicTo(rect.right,cy+dy,rect.right-dx,rect.bottom,cx,rect.bottom)
+            cubicTo(rect.left+dx,rect.bottom,rect.left,cy+dy,rect.left,cy)
+            cubicTo(rect.left,cy-dy,rect.left+dx,rect.top,cx,rect.top); close()
         }
     }
 }
