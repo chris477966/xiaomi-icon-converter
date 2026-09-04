@@ -23,8 +23,16 @@ class MaterialStyleTest {
         assertEquals(12f, MaterialIconShapeRenderer.boundsValues[0])
         assertEquals(238f, MaterialIconShapeRenderer.boundsValues[2])
     }
-    @Test fun `squircle uses Lawnchair control distance point`() { assertEquals(.2f, MaterialIconShapeRenderer.LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE) }
-    @Test fun `rounded square uses Lawnchair scale`() { assertEquals(.6f, MaterialIconShapeRenderer.LAWNCHAIR_ROUNDED_SQUARE_SCALE) }
+    @Test fun `squircle reference points use Lawnchair BaseBezier mapping`() {
+        val c=MaterialIconShapeRenderer.topRightSquircleCorner(12f,12f,238f,238f)
+        assertEquals(125f,c.startX);assertEquals(215.4f,c.control1X,.001f);assertEquals(238f,c.control2X);assertEquals(34.6f,c.control2Y,.001f);assertEquals(125f,c.endY)
+    }
+    @Test fun `circle and squircle geometry are not equal`() {
+        val c=MaterialIconShapeRenderer.topRightSquircleCorner(12f,12f,238f,238f)
+        val circleControl=238f-113f*(1f-.551915f)
+        assertNotEquals(circleControl,c.control1X)
+    }
+    @Test fun `rounded square radius follows Lawnchair scale`() { assertEquals(67.8f,MaterialIconShapeRenderer.roundedSquareRadius(226f,226f),.001f) }
     @Test fun `shape changes do not alter source maps`() {
         val sources = mapOf("p#A" to MonetGlyphSource.LAWNICONS_PACKAGE)
         assertEquals(sources, sources)

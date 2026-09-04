@@ -53,18 +53,24 @@ object MaterialIconShapeRenderer {
         when (shape) {
             MaterialIconShape.HYPEROS -> canvas.drawRoundRect(bounds, 58f, 58f, paint)
             MaterialIconShape.CIRCLE -> canvas.drawOval(bounds, paint)
-            MaterialIconShape.ROUNDED_SQUARE -> canvas.drawRoundRect(bounds, bounds.width() * (1f - LAWNCHAIR_ROUNDED_SQUARE_SCALE) / 2f, bounds.width() * (1f - LAWNCHAIR_ROUNDED_SQUARE_SCALE) / 2f, paint)
+            MaterialIconShape.ROUNDED_SQUARE -> canvas.drawRoundRect(bounds, roundedSquareRadius(bounds), roundedSquareRadius(bounds), paint)
             MaterialIconShape.SQUIRCLE -> canvas.drawPath(squircle(bounds), paint)
         }
     }
-    /** Lawnchair Squircle's normalized 0.2 control distance, transformed into HyperOS bounds. */
+    data class CubicCorner(val startX:Float,val startY:Float,val control1X:Float,val control1Y:Float,val control2X:Float,val control2Y:Float,val endX:Float,val endY:Float)
+    fun roundedSquareRadius(rect:RectF)=roundedSquareRadius(rect.width(),rect.height())
+    fun roundedSquareRadius(width:Float,height:Float)=minOf(width,height)/2f*LAWNCHAIR_ROUNDED_SQUARE_SCALE
+    /** BaseBezierPath: mapRange(.2, control=(1,0), start=(0,0)) and end=(1,1), then scale by cornerSize. */
+    fun topRightSquircleCorner(rect:RectF)=topRightSquircleCorner(rect.left,rect.top,rect.right,rect.bottom)
+    fun topRightSquircleCorner(left:Float,top:Float,right:Float,bottom:Float):CubicCorner { val size=minOf(right-left,bottom-top)/2f;val offset=size*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE;return CubicCorner(right-size,top,right-offset,top,right,top+offset,right,top+size) }
+    /** Lawnchair Squircle BaseBezierPath with cornerSize=min(bounds)/2 and controlDistance=.2. */
     fun squircle(rect: RectF): Path {
-        val cx = rect.centerX(); val cy = rect.centerY(); val dx=rect.width()*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE;val dy=rect.height()*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE
+        val tr=topRightSquircleCorner(rect);val size=minOf(rect.width(),rect.height())/2f;val offset=size*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE
         return Path().apply {
-            moveTo(cx, rect.top); cubicTo(rect.right-dx,rect.top,rect.right,cy-dy,rect.right,cy)
-            cubicTo(rect.right,cy+dy,rect.right-dx,rect.bottom,cx,rect.bottom)
-            cubicTo(rect.left+dx,rect.bottom,rect.left,cy+dy,rect.left,cy)
-            cubicTo(rect.left,cy-dy,rect.left+dx,rect.top,cx,rect.top); close()
+            moveTo(tr.startX,tr.startY);cubicTo(tr.control1X,tr.control1Y,tr.control2X,tr.control2Y,tr.endX,tr.endY)
+            cubicTo(rect.right,rect.bottom-offset,rect.right-offset,rect.bottom,rect.right-size,rect.bottom)
+            cubicTo(rect.left+offset,rect.bottom,rect.left,rect.bottom-offset,rect.left,rect.bottom-size)
+            cubicTo(rect.left,rect.top+offset,rect.left+offset,rect.top,rect.left+size,rect.top);close()
         }
     }
 }

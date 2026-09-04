@@ -95,7 +95,7 @@ import com.wikiglobal.iconconverter.model.IconMatch
     }
     if (state.monet.diagnostics.isNotEmpty()) TextButton(exportReport, Modifier.fillMaxWidth()) { Text("导出 Material 来源诊断") }
     if (seedDialog) SeedColorDialog(style.customSeedColor, { color -> setStyle(style.copy(customSeedColor=color)); seedDialog=false }, { seedDialog=false })
-    if (confirmFollow) AlertDialog(onDismissRequest={confirmFollow=false}, title={Text("启用跟随壁纸配色？")}, text={Text("更换壁纸后，应用将使用已授权的 Root 权限重新生成并更新当前 Material You 图标。不会修改系统分区或动态图标。")}, confirmButton={TextButton({setStyle(style.copy(followWallpaperMonet=true));confirmFollow=false}){Text("确认")}}, dismissButton={TextButton({confirmFollow=false}){Text("取消")}})
+    if (confirmFollow) AlertDialog(onDismissRequest={confirmFollow=false}, title={Text("启用跟随壁纸配色？")}, text={Text("应用运行期间会自动检测壁纸配色变化并更新图标；如果应用进程已被系统关闭，将在下次打开应用时同步最新系统配色。自动更新需要已授权的 Root 权限，不会修改系统分区或动态图标。")}, confirmButton={TextButton({setStyle(style.copy(followWallpaperMonet=true));confirmFollow=false}){Text("确认")}}, dismissButton={TextButton({confirmFollow=false}){Text("取消")}})
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
