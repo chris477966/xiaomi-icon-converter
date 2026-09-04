@@ -283,8 +283,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val newPalette = resolution.palette
             if (!MaterialPreviewRefreshPolicy.shouldRerender(
                     current.style.colorMode,
-                    current.palette?.hash(),
-                    newPalette.hash(),
+                    current.paletteResolution?.hash ?: current.palette?.hash(),
+                    resolution.hash,
                     materialGlyphCache.isNotEmpty()
                 )) return@withLock
             val rendered = withContext(Dispatchers.Default) {

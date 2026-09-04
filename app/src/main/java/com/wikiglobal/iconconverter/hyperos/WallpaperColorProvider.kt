@@ -41,7 +41,8 @@ data class MaterialPaletteResolution(
     val wallpaperColors: WallpaperColorState? = null,
     val fallbackUsed: Boolean = false
 ) {
-    val hash: String get() = palette.hash()
+    /** Includes wallpaper swatches so the summary updates even when the primary seed is unchanged. */
+    val hash: String get() = if (wallpaperColors != null) "${palette.hash()}:${wallpaperColors.hash}" else palette.hash()
 }
 
 fun interface WallpaperColorSource { suspend fun read(): WallpaperColorState? }
