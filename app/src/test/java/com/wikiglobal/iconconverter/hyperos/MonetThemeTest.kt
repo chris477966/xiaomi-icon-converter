@@ -7,7 +7,7 @@ import org.junit.Test
 class MonetThemeTest {
     private val palette = MonetPalette(1,2,7,8,20,30)
     @Test fun `light and dark mapping is explicit`() { assertEquals(1 to 7, palette.colors(false)); assertEquals(7 to 2, palette.colors(true)) }
-    @Test fun `palette hash changes with palette`() { assertNotEquals(palette.hash(), palette.copy(accent700 = 9).hash()) }
+    @Test fun `palette hash changes with palette`() { assertNotEquals(palette.hash(), palette.copy(accent1_700 = 9).hash()) }
     @Test fun `transparent centered glyph is accepted`() {
         val config = GlyphSafetyConfig(edgeInsetPx = 1)
         val alpha = IntArray(100) { i -> if (i / 10 in 3..6 && i % 10 in 3..6) 255 else 0 }

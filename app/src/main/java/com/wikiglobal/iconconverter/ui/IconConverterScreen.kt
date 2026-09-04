@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.wikiglobal.iconconverter.hyperos.MonetGlyphSource
 import com.wikiglobal.iconconverter.hyperos.MaterialSourceOverride
@@ -56,17 +58,24 @@ import com.wikiglobal.iconconverter.model.IconMatch
     Box(modifier) {
         LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=4.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             item(span={GridItemSpan(maxLineSpan)}) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp), verticalAlignment=Alignment.CenterVertically) {
-                    FilterChip(selected=false,onClick={colorSheet=true},label={Text(materialColorModeLabel(style.colorMode))})
-                    FilterChip(selected=false,onClick={shapeSheet=true},label={Text(shapeLabel(style.shape))})
-                    Text("自动来源：Native → Lawnicons → AOSP → Keep", style=MaterialTheme.typography.labelSmall)
+                Column(Modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(8.dp), verticalAlignment=Alignment.CenterVertically) {
+                        FilterChip(selected=false,onClick={colorSheet=true},label={Text(materialColorModeLabel(style.colorMode), maxLines=1, overflow=TextOverflow.Ellipsis)}, modifier=Modifier.weight(1f))
+                        FilterChip(selected=false,onClick={shapeSheet=true},label={Text(shapeLabel(style.shape), maxLines=1, overflow=TextOverflow.Ellipsis)}, modifier=Modifier.weight(1f))
+                    }
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        if (style.colorMode != MaterialColorMode.CUSTOM) Checkbox(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) })
+                        if (style.colorMode != MaterialColorMode.CUSTOM) Text("壁纸变化后自动应用图标", style=MaterialTheme.typography.bodySmall)
+                    }
+                    if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog=true }) { Text("选择 Seed Color") } }
                 }
-                if (style.colorMode != MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) }); Text("壁纸变化后自动应用图标", style=MaterialTheme.typography.bodySmall) }
-                if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog=true }) { Text("选择 Seed Color") } }
             }
             item(span={GridItemSpan(maxLineSpan)}) {
                 Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                    Text("Material You · ${if(state.monet.dark)"Dark" else "Light"}",style=MaterialTheme.typography.titleMedium)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+                        Text("Material You · ${if(state.monet.dark)"Dark" else "Light"}", Modifier.weight(1f), style=MaterialTheme.typography.titleMedium)
+                        if (state.monet.diagnostics.isNotEmpty()) IconButton(exportReport, modifier = Modifier.size(40.dp)) { Text("ⓘ", modifier = Modifier.semantics { contentDescription = "诊断" }) }
+                    }
                     Text("颜色来源：${paletteSourceLabel(state.monet.paletteResolution)}", style=MaterialTheme.typography.labelMedium)
                     state.monet.paletteResolution?.wallpaperColors?.let { colors ->
                         Row(horizontalArrangement=Arrangement.spacedBy(6.dp), verticalAlignment=Alignment.CenterVertically) {
@@ -104,7 +113,6 @@ import com.wikiglobal.iconconverter.model.IconMatch
             onSelect = { override -> setOverride(key, override); selectedKey = null }
         )
     }
-    if (state.monet.diagnostics.isNotEmpty()) TextButton(exportReport, Modifier.fillMaxWidth()) { Text("导出 Material 来源诊断") }
     if (seedDialog) SeedColorDialog(style.customSeedColor, { color -> setStyle(style.copy(customSeedColor=color)); seedDialog=false }, { seedDialog=false })
     if (confirmFollow) AlertDialog(onDismissRequest={confirmFollow=false}, title={Text("启用壁纸变化后自动应用？")}, text={Text("应用运行期间会自动检测壁纸配色变化并更新图标；如果应用进程已被系统关闭，将在下次打开应用时同步最新系统配色。自动更新需要已授权的 Root 权限，不会修改系统分区或动态图标。")}, confirmButton={TextButton({setStyle(style.copy(followWallpaperMonet=true));confirmFollow=false}){Text("确认")}}, dismissButton={TextButton({confirmFollow=false}){Text("取消")}})
 }

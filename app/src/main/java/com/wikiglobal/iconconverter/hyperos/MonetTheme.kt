@@ -30,8 +30,29 @@ private object AlphaMaskRenderer {
     fun render(d: Drawable): Bitmap { val s=HyperOs3ThemePatcher.ICON_SIZE; val b=Bitmap.createBitmap(s,s,Bitmap.Config.ARGB_8888); val old=Rect(d.bounds); d.setBounds(0,0,s,s); d.draw(Canvas(b)); d.bounds=old; val p=IntArray(s*s);b.getPixels(p,0,s,0,0,s,s);p.indices.forEach{p[it]=(p[it] ushr 24) shl 24};b.setPixels(p,0,s,0,0,s,s);return b }
     fun analysis(b: Bitmap,c: GlyphSafetyConfig)=IntArray(b.width*b.height).also{b.getPixels(it,0,b.width,0,0,b.width,b.height);it.indices.forEach{i->it[i]=it[i] ushr 24}}.let{GlyphSafetyAnalyzer.analyze(it,b.width,b.height,c)}
 }
-data class MonetPalette(val accent100:Int,val accent200:Int,val accent700:Int,val accent800:Int,val accent2:Int?,val accent3:Int?){fun colors(dark:Boolean)=if(dark)accent700 to accent200 else accent100 to accent700;fun hash()=MessageDigest.getInstance("SHA-256").digest(listOf(accent100,accent200,accent700,accent800,accent2,accent3).joinToString().toByteArray()).joinToString(""){"%02x".format(it)}}
-object MonetPaletteReader { fun read(r:Resources=Resources.getSystem()):MonetPalette?=runCatching{fun c(n:String):Int{val i=r.getIdentifier(n,"color","android");require(i!=0);return r.getColor(i,null)};MonetPalette(c("system_accent1_100"),c("system_accent1_200"),c("system_accent1_700"),c("system_accent1_800"),c("system_accent2_100"),c("system_accent3_100"))}.getOrNull() }
+
+/** Explicit Material role names used by the HyperOS static renderer. */
+data class MonetPalette(
+    val accent1_100:Int,
+    val accent1_200:Int,
+    val accent1_700:Int,
+    val accent1_800:Int,
+    val accent2_100:Int?,
+    val accent2_800:Int?,
+    val accent3_100:Int?
+) {
+    /** Six-argument compatibility constructor for older synthetic/unit-test palettes. */
+    constructor(a100:Int,a200:Int,a700:Int,a800:Int,legacyAccent2:Int?,legacyAccent3:Int?):this(a100,a200,a700,a800,legacyAccent2,a700,legacyAccent3)
+    @Deprecated("Use accent1_100") val accent100:Int get()=accent1_100
+    @Deprecated("Use accent1_200") val accent200:Int get()=accent1_200
+    @Deprecated("Use accent1_700") val accent700:Int get()=accent1_700
+    @Deprecated("Use accent1_800") val accent800:Int get()=accent1_800
+    @Deprecated("Use accent2_100") val accent2:Int? get()=accent2_100
+    @Deprecated("Use accent3_100") val accent3:Int? get()=accent3_100
+    fun colors(dark:Boolean)=if(dark)(accent2_800 ?: accent1_700) to accent1_200 else accent1_100 to accent1_700
+    fun hash()=MessageDigest.getInstance("SHA-256").digest(listOf(accent1_100,accent1_200,accent1_700,accent1_800,accent2_100,accent2_800,accent3_100).joinToString().toByteArray()).joinToString(""){ "%02x".format(it)}
+}
+object MonetPaletteReader { fun read(r:Resources=Resources.getSystem()):MonetPalette?=runCatching{fun c(n:String):Int{val i=r.getIdentifier(n,"color","android");require(i!=0);return r.getColor(i,null)};MonetPalette(c("system_accent1_100"),c("system_accent1_200"),c("system_accent1_700"),c("system_accent1_800"),c("system_accent2_100"),c("system_accent3_100"),c("system_accent2_800"))}.getOrNull() }
 object MonochromeResolver {
     fun nativeOrNull(icon: Drawable?, c: GlyphSafetyConfig = GlyphSafetyConfig()): MonetGlyphResult? { val mono=(icon as? AdaptiveIconDrawable)?.takeIf{Build.VERSION.SDK_INT>=33}?.monochrome ?: return null; return native(mono,c).takeIf { it.alphaMask != null } }
     /** Production pipeline intentionally excludes experimental background segmentation and foreground guessing. */

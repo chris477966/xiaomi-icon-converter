@@ -33,19 +33,34 @@ class MaterialStyleStore(context: Context) {
     fun set(style: MaterialStyle) { val normalized=style.normalized(); prefs.edit().putString("colorMode", normalized.colorMode.name).putInt("seed", normalized.customSeedColor).putString("shape", normalized.shape.name).putBoolean("follow", normalized.followWallpaperMonet).apply() }
 }
 
-/** Uses official Material Color Utilities HCT tonal palettes; no HSL approximation is used. */
+/** Lawnchair/AOSP Tonal Spot palette: fixed role chroma, with the wallpaper/custom seed as hue source. */
 object MaterialPaletteFactory {
+    const val TONAL_SPOT_A1_CHROMA = 36.0
+    const val TONAL_SPOT_A2_CHROMA = 16.0
+    const val TONAL_SPOT_A3_CHROMA = 24.0
+    const val TONAL_SPOT_A3_HUE_OFFSET = 60.0
+    const val TONAL_SPOT_N1_CHROMA = 6.0
+    const val TONAL_SPOT_N2_CHROMA = 8.0
     fun forStyle(style: MaterialStyle, system: MonetPalette?): MonetPalette? = when (style.colorMode) {
         MaterialColorMode.WALLPAPER_AUTO -> null
         MaterialColorMode.SYSTEM_MONET -> system
         MaterialColorMode.CUSTOM -> fromSeed(style.customSeedColor)
     }
     fun fromSeed(seed: Int): MonetPalette {
-        val hct = Hct.fromInt(seed)
-        val accent1 = TonalPalette.fromHueAndChroma(hct.hue, maxOf(48.0, hct.chroma))
-        val accent2 = TonalPalette.fromHueAndChroma(hct.hue, maxOf(16.0, hct.chroma / 3))
-        return MonetPalette(accent1.tone(90), accent1.tone(80), accent1.tone(30), accent1.tone(20), accent2.tone(80), accent2.tone(80))
+        val source = Hct.fromInt(seed)
+        val accent1 = TonalPalette.fromHueAndChroma(source.hue, TONAL_SPOT_A1_CHROMA)
+        val accent2 = TonalPalette.fromHueAndChroma(source.hue, TONAL_SPOT_A2_CHROMA)
+        val accent3 = TonalPalette.fromHueAndChroma(sanitizeDegrees(source.hue + TONAL_SPOT_A3_HUE_OFFSET), TONAL_SPOT_A3_CHROMA)
+        // Neutral palettes are intentionally created with the same Tonal Spot parameters;
+        // HyperOS icon output currently consumes the accent roles only.
+        TonalPalette.fromHueAndChroma(source.hue, TONAL_SPOT_N1_CHROMA)
+        TonalPalette.fromHueAndChroma(source.hue, TONAL_SPOT_N2_CHROMA)
+        return MonetPalette(
+            accent1.tone(90), accent1.tone(80), accent1.tone(30), accent1.tone(20),
+            accent2.tone(90), accent2.tone(20), accent3.tone(90)
+        )
     }
+    private fun sanitizeDegrees(value: Double): Double = ((value % 360.0) + 360.0) % 360.0
     fun custom(seed: Int): MonetPalette = fromSeed(seed)
 }
 
