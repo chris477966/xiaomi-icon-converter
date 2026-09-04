@@ -12,8 +12,8 @@ android {
         applicationId = "com.wikiglobal.iconconverter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.2.8"
+        versionCode = 14
+        versionName = "0.2.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -33,6 +33,8 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.material.components)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
 }

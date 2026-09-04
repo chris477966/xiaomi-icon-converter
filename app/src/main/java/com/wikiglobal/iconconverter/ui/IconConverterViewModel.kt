@@ -30,6 +30,16 @@ import com.wikiglobal.iconconverter.hyperos.MaterialSourceOverride
 import com.wikiglobal.iconconverter.hyperos.AospMonochromeGenerator
 import com.wikiglobal.iconconverter.hyperos.MaterialCandidateDiscovery
 import com.wikiglobal.iconconverter.hyperos.MaterialSourcePriority
+import com.wikiglobal.iconconverter.hyperos.MaterialStyle
+import com.wikiglobal.iconconverter.hyperos.MaterialStyleStore
+import com.wikiglobal.iconconverter.hyperos.MaterialColorMode
+import com.wikiglobal.iconconverter.hyperos.MaterialIconShape
+import com.wikiglobal.iconconverter.hyperos.MaterialPaletteFactory
+import com.wikiglobal.iconconverter.hyperos.MaterialStyledGlyphRenderer
+import com.wikiglobal.iconconverter.hyperos.MaterialGlyphCache
+import com.wikiglobal.iconconverter.hyperos.MaterialInstalledStateStore
+import com.wikiglobal.iconconverter.hyperos.MaterialInstalledState
+import com.wikiglobal.iconconverter.hyperos.AutoRecolorStatus
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -61,7 +71,7 @@ data class MaterialSourceDiagnostic(
     val lawniconsProviderStatus: LawniconsProviderStatus, val lawniconsMapped: Boolean, val lawniconsDrawableId: Int,
     val aospAdaptiveAvailable: Boolean, val aospCandidateSource: String?, val finalSource: MonetGlyphSource
 )
-data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val timestamp: Long = 0) {
+data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0) {
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
@@ -94,6 +104,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val rawIconResolver = RawAppIconResolver(application)
     private val lawniconsProvider = LawniconsThemedProvider(application)
     private val overrideStore = MaterialOverrideStore(application)
+    private val styleStore = MaterialStyleStore(application)
+    private val materialGlyphCache = linkedMapOf<String, MonetGlyphResult>()
+    private val glyphDiskCache = MaterialGlyphCache(application)
+    private val installedMaterialStore = MaterialInstalledStateStore(application)
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
@@ -120,7 +134,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     fun generateMonetPreview() = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(loading = true, message = null)
         runCatching { withContext(Dispatchers.Default) {
-            val palette = MonetPaletteReader.read() ?: error("当前系统 Monet 调色板不可用")
+            val style = styleStore.get()
+            val palette = MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) ?: error("当前系统 Monet 调色板不可用")
             val dark = (getApplication<Application>().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
             val sources = linkedMapOf<String, MonetGlyphSource>()
             val pngs = linkedMapOf<String, ByteArray>()
@@ -134,9 +149,11 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 availability[resolved.key] = resolved.availability
                 overrides[resolved.key] = resolved.override
                 diagnostics[resolved.key] = resolved.diagnostic
-                MonetGlyphRenderer.render(resolved.glyph, palette, dark)?.let { pngs[resolved.key] = it }
+                materialGlyphCache[resolved.key] = resolved.glyph
+                glyphDiskCache.save(resolved.key, resolved.glyph)
+                MaterialStyledGlyphRenderer.render(resolved.glyph, palette, dark, style.shape)?.let { pngs[resolved.key] = it }
             }
-            MonetUiState(System.nanoTime(), palette, dark, sources, pngs, availability, overrides, diagnostics, providerState, System.currentTimeMillis())
+            MonetUiState(System.nanoTime(), palette, dark, sources, pngs, availability, overrides, diagnostics, providerState, style, System.currentTimeMillis())
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
     }
@@ -159,7 +176,9 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val overrides = monet.overrides.toMutableMap().apply { put(componentKey, resolved.override) }
             val diagnostics = monet.diagnostics.toMutableMap().apply { put(componentKey, resolved.diagnostic) }
             val generated = monet.generated.toMutableMap().apply {
-                MonetGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark)?.let { put(componentKey, it) } ?: remove(componentKey)
+                materialGlyphCache[componentKey] = resolved.glyph
+                glyphDiskCache.save(componentKey, resolved.glyph)
+                MaterialStyledGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark, monet.style.shape)?.let { put(componentKey, it) } ?: remove(componentKey)
             }
             monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
         } }.onSuccess { updated ->
@@ -208,6 +227,18 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private fun componentKey(match: IconMatch) = match.app.packageName + "#" + match.app.launcherActivity
     private fun android.graphics.drawable.Drawable?.typeName() = this?.javaClass?.simpleName ?: "NOT_FOUND"
 
+    /** Style changes only re-render cached glyph masks; provider discovery and source policy stay untouched. */
+    fun updateMaterialStyle(style: MaterialStyle) = viewModelScope.launch {
+        styleStore.set(style)
+        val current = _uiState.value.monet
+        if (!current.available || materialGlyphCache.isEmpty()) {
+            _uiState.value = _uiState.value.copy(monet = current.copy(style = style)); return@launch
+        }
+        val palette = MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) ?: return@launch
+        val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape)?.let { key to it } }.toMap() }
+        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
+    }
+
     fun applyMonetToSystem() = viewModelScope.launch {
         val state = _uiState.value
         _uiState.value = state.copy(themeOperationRunning = true, message = null)
@@ -225,9 +256,13 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             check(replacements.isNotEmpty()) { "没有可应用的 Material You 图标" }
             val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-monet-icons.zip")
             HyperOs3ThemePatcher.patch(base, patched, replacements)
-            backupManager.install(patched, "system-monet", "MATERIAL_YOU", monet.palette!!.hash()).getOrThrow()
-            replacements.size
-        } }.onSuccess { count -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = "已原子应用 $count 个 Material You 图标") }
+            val session = backupManager.install(patched, "system-monet", "MATERIAL_YOU", monet.palette!!.hash()).getOrThrow()
+            replacements.size to session.lastInstalledSha256.orEmpty()
+        } }.onSuccess { (count, archiveSha) ->
+            val monet = _uiState.value.monet
+            installedMaterialStore.save(MaterialInstalledState(true, monet.style.colorMode, monet.palette!!.hash(), monet.style.customSeedColor, monet.style.shape, monet.dark, System.currentTimeMillis(), archiveSha, monet.style.followWallpaperMonet, AutoRecolorStatus.IDLE))
+            _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = "已原子应用 $count 个 Material You 图标")
+        }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "Material You 应用失败") }
     }
 

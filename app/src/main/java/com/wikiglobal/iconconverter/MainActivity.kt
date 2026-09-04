@@ -45,7 +45,8 @@ class MainActivity : ComponentActivity() {
                         onThemeMode = viewModel::selectThemeMode,
                         onMonetPreview = viewModel::generateMonetPreview,
                         onApplyMonet = viewModel::applyMonetToSystem,
-                        onMaterialOverride = viewModel::setMaterialOverride
+                        onMaterialOverride = viewModel::setMaterialOverride,
+                        onMaterialStyle = viewModel::updateMaterialStyle
                     )
                 }
             }
