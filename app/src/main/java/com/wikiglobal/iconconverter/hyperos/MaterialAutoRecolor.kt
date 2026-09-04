@@ -36,9 +36,10 @@ object WallpaperMonetScheduler {
 class WallpaperMonetWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params){
     override suspend fun doWork():Result{
         val styleStore=MaterialStyleStore(applicationContext); val installedStore=MaterialInstalledStateStore(applicationContext); val installed=installedStore.load(); val style=styleStore.get()
-        if(style.colorMode!=MaterialColorMode.SYSTEM_MONET||!style.followWallpaperMonet||!installed.isMaterialInstalled)return Result.success()
+        if(style.colorMode==MaterialColorMode.CUSTOM||!style.autoApplyWallpaperChanges||!installed.isMaterialInstalled)return Result.success()
+        val paletteResolver = MaterialPaletteResolver(applicationContext)
         var palette:MonetPalette?=null
-        for (attempt in 0 until 5) { palette=MonetPaletteReader.read(); if(palette?.hash()!=installed.paletteHash) break; if(attempt<4) delay(3000) }
+        for (attempt in 0 until 5) { palette=paletteResolver.resolve(style)?.palette; if(palette?.hash()!=installed.paletteHash) break; if(attempt<4) delay(3000) }
         val current=palette?:return Result.success()
         if(current.hash()==installed.paletteHash){installedStore.save(installed.copy(status=AutoRecolorStatus.NO_ACTION));return Result.success()}
         val root=SuThemeRootExecutor(); val cache=MaterialGlyphCache(applicationContext).load(); val rootAvailable=root.isRootAvailable()

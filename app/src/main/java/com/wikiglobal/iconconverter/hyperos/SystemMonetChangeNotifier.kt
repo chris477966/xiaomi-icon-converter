@@ -16,3 +16,6 @@ object SystemMonetChangeNotifier {
         mutableChanges.tryEmit(Unit)
     }
 }
+
+/** Semantic alias used by wallpaper producers; both names share one process flow. */
+typealias WallpaperColorChangeNotifier = SystemMonetChangeNotifier

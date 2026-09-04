@@ -6,7 +6,7 @@ data class MaterialAutoRecolorInput(val style: MaterialStyle, val installed: Mat
 /** Pure eligibility policy shared by runtime wallpaper events and foreground reconciliation. */
 object MaterialAutoRecolorCoordinator {
     fun decide(input: MaterialAutoRecolorInput): MaterialAutoRecolorDecision = when {
-        input.style.colorMode != MaterialColorMode.SYSTEM_MONET || !input.style.followWallpaperMonet -> MaterialAutoRecolorDecision.DISABLED
+        input.style.colorMode == MaterialColorMode.CUSTOM || !input.style.autoApplyWallpaperChanges -> MaterialAutoRecolorDecision.DISABLED
         !input.installed.isMaterialInstalled -> MaterialAutoRecolorDecision.NO_MATERIAL_INSTALL
         input.paletteHash == null || input.paletteHash == input.installed.paletteHash -> MaterialAutoRecolorDecision.PALETTE_UNCHANGED
         !input.rootAvailable -> MaterialAutoRecolorDecision.ROOT_UNAVAILABLE

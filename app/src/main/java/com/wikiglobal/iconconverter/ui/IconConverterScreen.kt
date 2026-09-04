@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.*
@@ -16,6 +17,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,7 +37,7 @@ import com.wikiglobal.iconconverter.model.IconMatch
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing, topBar = { TopAppBar(title = { Column { Text("HyperIcon Converter"); Text("HyperOS 3", style = MaterialTheme.typography.labelMedium) } }, actions = { TextButton({ tools = !tools }) { Text(if (tools) "返回" else "工具") } }) }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = { if (!tools) BottomAppBar { when (state.themeMode) { ThemeMode.ICON_PACK -> Button(onApplyTheme, enabled = state.iconPack != null && state.matchedCount > 0 && state.rootAvailable && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text("应用原图标包") }; ThemeMode.MATERIAL_YOU -> Button(if(state.rootAvailable) onApplyMonet else onCheckRoot, enabled = state.monet.generated.isNotEmpty() && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text(if (state.rootAvailable) "应用 Material You" else "检查 Root 并继续") } } } }) { padding ->
         if (tools) SystemToolsScreen(Modifier.padding(padding), state, onCheckRoot, onRestoreTheme, onRefreshCache, onForceRestart, onCheckHyperOs, onExportReport)
         else Column(Modifier.padding(padding).fillMaxSize()) {
-            SourceCard(state, onSelect)
+            if (state.themeMode == ThemeMode.ICON_PACK) SourceCard(state, onSelect)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal=16.dp, vertical=8.dp)) { ThemeMode.entries.forEachIndexed { i, mode -> SegmentedButton(selected=state.themeMode==mode,onClick={onThemeMode(mode)},shape=SegmentedButtonDefaults.itemShape(i,2),label={Text(if(mode==ThemeMode.ICON_PACK)"图标包" else "Material You")}) } }
             if (state.themeMode == ThemeMode.ICON_PACK) IconPackScreen(state, onGenerate, Modifier.weight(1f)) else MaterialYouScreen(state, onMonetPreview, onMaterialOverride, onExportMaterialReport, onMaterialStyle, Modifier.weight(1f))
         }
@@ -47,30 +50,39 @@ import com.wikiglobal.iconconverter.model.IconMatch
 @Composable private fun MaterialYouScreen(state: ConverterUiState, generate: () -> Unit, setOverride: (String, MaterialSourceOverride) -> Unit, exportReport: () -> Unit, setStyle: (MaterialStyle) -> Unit, modifier: Modifier) {
     var selectedKey by remember { mutableStateOf<String?>(null) }
     val selected = state.matches.firstOrNull { it.app.packageName + "#" + it.app.launcherActivity == selectedKey }
-    val p = state.monet.palette
     val style = state.monet.style
     var seedDialog by remember { mutableStateOf(false) }
     var confirmFollow by remember { mutableStateOf(false) }
-    Column(modifier.padding(horizontal=16.dp)) {
-        Text("颜色", style=MaterialTheme.typography.labelLarge)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical=4.dp)) {
-            listOf(MaterialColorMode.SYSTEM_MONET to "系统 Monet", MaterialColorMode.CUSTOM to "自定义").forEachIndexed { index, (mode, label) ->
-                SegmentedButton(selected=style.colorMode == mode, onClick={ setStyle(style.copy(colorMode = mode, followWallpaperMonet = if (mode == MaterialColorMode.CUSTOM) false else style.followWallpaperMonet)) }, shape=SegmentedButtonDefaults.itemShape(index, 2), label={ Text(label) })
+    var colorSheet by remember { mutableStateOf(false) }
+    var shapeSheet by remember { mutableStateOf(false) }
+    Box(modifier) {
+        LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=4.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            item(span={GridItemSpan(maxLineSpan)}) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp), verticalAlignment=Alignment.CenterVertically) {
+                    FilterChip(selected=false,onClick={colorSheet=true},label={Text(materialColorModeLabel(style.colorMode))})
+                    FilterChip(selected=false,onClick={shapeSheet=true},label={Text(shapeLabel(style.shape))})
+                    AssistChip(onClick={},label={Text("自动来源")})
+                }
+                if (style.colorMode != MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) }); Text("壁纸变化后自动应用图标", style=MaterialTheme.typography.bodySmall) }
+                if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog=true }) { Text("选择 Seed Color") } }
             }
-        }
-        if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog = true }) { Text("选择颜色") } }
-        Text("图标形状", style=MaterialTheme.typography.labelLarge)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(4.dp)) { MaterialIconShape.entries.forEach { shape -> FilterChip(selected=style.shape==shape,onClick={setStyle(style.copy(shape=shape))},label={Text(shapeLabel(shape))}) } }
-        if (style.colorMode == MaterialColorMode.SYSTEM_MONET) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) }); Text("跟随壁纸配色") }
-        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-            Text("Material You · ${if(state.monet.dark)"Dark" else "Light"}",style=MaterialTheme.typography.titleMedium)
-            p?.let { val c=it.colors(state.monet.dark); Text("● #${"%08X".format(c.first)}     ● #${"%08X".format(c.second)}") }
-            Text("可生成 ${state.monet.generated.size} · 保留 ${state.monet.sources.size-state.monet.generated.size}")
-            Text("官方 ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Lawnicons ${state.monet.sources.values.count { it.name.startsWith("LAWNICONS") }} · 自动单色 ${state.monet.sourceCount(MonetGlyphSource.AOSP_FORCED_MONOCHROME)}",style=MaterialTheme.typography.labelSmall)
-            if (state.monet.lawniconsProvider.status != LawniconsProviderStatus.READY) Text("Lawnicons Provider：${lawniconsProviderLabel(state.monet.lawniconsProvider.status)}", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.error)
-        } }
-        if(state.monet.generated.isEmpty()) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Button(generate){Text("生成预览")}}
-        else LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            item(span={GridItemSpan(maxLineSpan)}) {
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text("Material You · ${if(state.monet.dark)"Dark" else "Light"}",style=MaterialTheme.typography.titleMedium)
+                    Text("颜色来源：${paletteSourceLabel(state.monet.paletteResolution)}", style=MaterialTheme.typography.labelMedium)
+                    state.monet.paletteResolution?.wallpaperColors?.let { colors ->
+                        Row(horizontalArrangement=Arrangement.spacedBy(6.dp), verticalAlignment=Alignment.CenterVertically) {
+                            PaletteSwatch(colors.primary, "主色"); PaletteSwatch(colors.secondary, "辅助色"); PaletteSwatch(colors.tertiary, "第三色")
+                        }
+                    }
+                    state.monet.palette?.let { palette -> val c=palette.colors(state.monet.dark); Text("● #${"%08X".format(c.first)}  ● #${"%08X".format(c.second)}",style=MaterialTheme.typography.labelSmall) }
+                    Text("可生成 ${state.monet.generated.size} · 保留 ${state.monet.sources.size-state.monet.generated.size}")
+                    Text("官方 ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Lawnicons ${state.monet.sources.values.count { it.name.startsWith("LAWNICONS") }} · 自动单色 ${state.monet.sourceCount(MonetGlyphSource.AOSP_FORCED_MONOCHROME)}",style=MaterialTheme.typography.labelSmall)
+                    if (state.monet.paletteResolution?.fallbackUsed == true) Text("壁纸颜色暂不可用，当前使用系统配色",style=MaterialTheme.typography.labelSmall)
+                    if (state.monet.lawniconsProvider.status != LawniconsProviderStatus.READY) Text("Lawnicons Provider：${lawniconsProviderLabel(state.monet.lawniconsProvider.status)}", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.error)
+                } }
+            }
+            if (state.monet.generated.isEmpty()) item(span={GridItemSpan(maxLineSpan)}) { Box(Modifier.fillMaxWidth().padding(vertical=16.dp),contentAlignment=Alignment.Center){Button(generate){Text("生成预览")}} }
             items(state.matches,key={componentPreviewKey(it.app.packageName,it.app.launcherActivity)},contentType={"material-app"}){match ->
                 val key=componentPreviewKey(match.app.packageName,match.app.launcherActivity)
                 Column(Modifier.height(120.dp).clickable { selectedKey=key }, horizontalAlignment=Alignment.CenterHorizontally) {
@@ -80,6 +92,8 @@ import com.wikiglobal.iconconverter.model.IconMatch
                 }
             }
         }
+        if (colorSheet) MaterialColorSheet(style, { next -> setStyle(next); colorSheet=false }, { colorSheet=false }, { seedDialog=true })
+        if (shapeSheet) MaterialShapeSheet(style, state.monet.palette, state.monet.dark, { next -> setStyle(next); shapeSheet=false }, { shapeSheet=false })
     }
     selected?.let { match ->
         val key = match.app.packageName + "#" + match.app.launcherActivity
@@ -94,7 +108,52 @@ import com.wikiglobal.iconconverter.model.IconMatch
     }
     if (state.monet.diagnostics.isNotEmpty()) TextButton(exportReport, Modifier.fillMaxWidth()) { Text("导出 Material 来源诊断") }
     if (seedDialog) SeedColorDialog(style.customSeedColor, { color -> setStyle(style.copy(customSeedColor=color)); seedDialog=false }, { seedDialog=false })
-    if (confirmFollow) AlertDialog(onDismissRequest={confirmFollow=false}, title={Text("启用跟随壁纸配色？")}, text={Text("应用运行期间会自动检测壁纸配色变化并更新图标；如果应用进程已被系统关闭，将在下次打开应用时同步最新系统配色。自动更新需要已授权的 Root 权限，不会修改系统分区或动态图标。")}, confirmButton={TextButton({setStyle(style.copy(followWallpaperMonet=true));confirmFollow=false}){Text("确认")}}, dismissButton={TextButton({confirmFollow=false}){Text("取消")}})
+    if (confirmFollow) AlertDialog(onDismissRequest={confirmFollow=false}, title={Text("启用壁纸变化后自动应用？")}, text={Text("应用运行期间会自动检测壁纸配色变化并更新图标；如果应用进程已被系统关闭，将在下次打开应用时同步最新系统配色。自动更新需要已授权的 Root 权限，不会修改系统分区或动态图标。")}, confirmButton={TextButton({setStyle(style.copy(followWallpaperMonet=true));confirmFollow=false}){Text("确认")}}, dismissButton={TextButton({confirmFollow=false}){Text("取消")}})
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun MaterialColorSheet(style: MaterialStyle, onSelect: (MaterialStyle) -> Unit, onDismiss: () -> Unit, openSeed: () -> Unit) = ModalBottomSheet(onDismissRequest=onDismiss) {
+    Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Text("颜色来源", style=MaterialTheme.typography.titleLarge)
+        ColorModeOption("壁纸自动", "使用当前桌面壁纸主色生成 Material 调色板", style.colorMode == MaterialColorMode.WALLPAPER_AUTO) { onSelect(style.copy(colorMode=MaterialColorMode.WALLPAPER_AUTO)) }
+        ColorModeOption("系统配色", "使用 HyperOS / Android 当前 system_accent 配色", style.colorMode == MaterialColorMode.SYSTEM_MONET) { onSelect(style.copy(colorMode=MaterialColorMode.SYSTEM_MONET)) }
+        ColorModeOption("自定义", "手动选择 Seed Color", style.colorMode == MaterialColorMode.CUSTOM) { onSelect(style.copy(colorMode=MaterialColorMode.CUSTOM, followWallpaperMonet=false)); openSeed() }
+    }
+}
+
+@Composable private fun ColorModeOption(title: String, description: String, selected: Boolean, onClick: () -> Unit) = Row(Modifier.fillMaxWidth().clickable(onClick=onClick).padding(vertical=8.dp), verticalAlignment=Alignment.CenterVertically) {
+    RadioButton(selected=selected,onClick=onClick)
+    Column(Modifier.padding(start=10.dp)) { Text(title); Text(description,style=MaterialTheme.typography.bodySmall) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun MaterialShapeSheet(style: MaterialStyle, palette: com.wikiglobal.iconconverter.hyperos.MonetPalette?, dark: Boolean, onSelect: (MaterialStyle) -> Unit, onDismiss: () -> Unit) = ModalBottomSheet(onDismissRequest=onDismiss) {
+    Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Text("图标形状", style=MaterialTheme.typography.titleLarge)
+        MaterialIconShape.entries.forEach { shape ->
+            Row(Modifier.fillMaxWidth().clickable { onSelect(style.copy(shape=shape)) }.padding(vertical=6.dp), verticalAlignment=Alignment.CenterVertically) {
+                Surface(Modifier.size(56.dp), color=androidx.compose.ui.graphics.Color(palette?.colors(dark)?.first ?: 0xffd9e2ff.toInt()), shape=shapePreviewShape(shape)) { Box(contentAlignment=Alignment.Center) { Text("Aa",style=MaterialTheme.typography.titleMedium) } }
+                Text(shapeLabel(shape), Modifier.padding(start=12.dp))
+            }
+        }
+    }
+}
+
+private fun shapePreviewShape(shape: MaterialIconShape): androidx.compose.ui.graphics.Shape = when (shape) {
+    MaterialIconShape.HYPEROS -> RoundedCornerShape(13.dp)
+    MaterialIconShape.CIRCLE -> CircleShape
+    MaterialIconShape.SQUIRCLE -> RoundedCornerShape(20.dp)
+    MaterialIconShape.ROUNDED_SQUARE -> RoundedCornerShape(17.dp)
+}
+
+@Composable private fun PaletteSwatch(color: Int?, label: String) { if (color != null) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(14.dp), color=androidx.compose.ui.graphics.Color(color), shape=MaterialTheme.shapes.small) {}; Text(label,Modifier.padding(start=3.dp),style=MaterialTheme.typography.labelSmall) } }
+private fun materialColorModeLabel(mode: MaterialColorMode) = when(mode) { MaterialColorMode.WALLPAPER_AUTO -> "壁纸自动"; MaterialColorMode.SYSTEM_MONET -> "系统配色"; MaterialColorMode.CUSTOM -> "自定义" }
+private fun paletteSourceLabel(resolution: com.wikiglobal.iconconverter.hyperos.MaterialPaletteResolution?) = when {
+    resolution == null -> "未生成"
+    resolution.fallbackUsed -> "壁纸自动 → 系统配色（Fallback）"
+    resolution.source == com.wikiglobal.iconconverter.hyperos.MaterialPaletteSource.WALLPAPER -> "壁纸自动"
+    resolution.source == com.wikiglobal.iconconverter.hyperos.MaterialPaletteSource.SYSTEM_MONET -> "系统配色"
+    else -> "自定义"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

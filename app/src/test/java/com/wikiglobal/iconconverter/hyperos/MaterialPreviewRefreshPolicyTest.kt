@@ -9,6 +9,10 @@ class MaterialPreviewRefreshPolicyTest {
         assertTrue(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "old", "new", true))
     }
 
+    @Test fun `WALLPAPER_AUTO_CHANGED_PREVIEW_RERENDER`() {
+        assertTrue(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.WALLPAPER_AUTO, "old", "new", true))
+    }
+
     @Test fun `SYSTEM_MONET_UNCHANGED_NO_RERENDER`() {
         assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "same", "same", true))
     }

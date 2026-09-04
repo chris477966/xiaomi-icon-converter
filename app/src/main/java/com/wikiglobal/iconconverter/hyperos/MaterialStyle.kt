@@ -14,14 +14,18 @@ import com.google.android.material.color.utilities.Hct
 import com.google.android.material.color.utilities.TonalPalette
 import com.wikiglobal.iconconverter.renderer.IconRenderer
 
-enum class MaterialColorMode { SYSTEM_MONET, CUSTOM }
+enum class MaterialColorMode { WALLPAPER_AUTO, SYSTEM_MONET, CUSTOM }
 enum class MaterialIconShape { HYPEROS, CIRCLE, SQUIRCLE, ROUNDED_SQUARE }
-data class MaterialStyle(val colorMode: MaterialColorMode = MaterialColorMode.SYSTEM_MONET, val customSeedColor: Int = Color.BLUE, val shape: MaterialIconShape = MaterialIconShape.HYPEROS, val followWallpaperMonet: Boolean = false) { fun normalized() = if (colorMode == MaterialColorMode.CUSTOM) copy(followWallpaperMonet = false) else this }
+data class MaterialStyle(val colorMode: MaterialColorMode = MaterialColorMode.WALLPAPER_AUTO, val customSeedColor: Int = Color.BLUE, val shape: MaterialIconShape = MaterialIconShape.HYPEROS, val followWallpaperMonet: Boolean = false) {
+    /** New API name; the old property remains as the persisted compatibility field. */
+    val autoApplyWallpaperChanges: Boolean get() = followWallpaperMonet
+    fun normalized() = if (colorMode == MaterialColorMode.CUSTOM) copy(followWallpaperMonet = false) else this
+}
 
 class MaterialStyleStore(context: Context) {
     private val prefs = context.getSharedPreferences("material-style", Context.MODE_PRIVATE)
     fun get() = MaterialStyle(
-        runCatching { MaterialColorMode.valueOf(prefs.getString("colorMode", MaterialColorMode.SYSTEM_MONET.name)!!) }.getOrDefault(MaterialColorMode.SYSTEM_MONET),
+        runCatching { MaterialColorMode.valueOf(prefs.getString("colorMode", MaterialColorMode.WALLPAPER_AUTO.name)!!) }.getOrDefault(MaterialColorMode.WALLPAPER_AUTO),
         prefs.getInt("seed", Color.BLUE),
         runCatching { MaterialIconShape.valueOf(prefs.getString("shape", MaterialIconShape.HYPEROS.name)!!) }.getOrDefault(MaterialIconShape.HYPEROS),
         prefs.getBoolean("follow", false)
@@ -32,15 +36,17 @@ class MaterialStyleStore(context: Context) {
 /** Uses official Material Color Utilities HCT tonal palettes; no HSL approximation is used. */
 object MaterialPaletteFactory {
     fun forStyle(style: MaterialStyle, system: MonetPalette?): MonetPalette? = when (style.colorMode) {
+        MaterialColorMode.WALLPAPER_AUTO -> null
         MaterialColorMode.SYSTEM_MONET -> system
-        MaterialColorMode.CUSTOM -> custom(style.customSeedColor)
+        MaterialColorMode.CUSTOM -> fromSeed(style.customSeedColor)
     }
-    fun custom(seed: Int): MonetPalette {
+    fun fromSeed(seed: Int): MonetPalette {
         val hct = Hct.fromInt(seed)
         val accent1 = TonalPalette.fromHueAndChroma(hct.hue, maxOf(48.0, hct.chroma))
         val accent2 = TonalPalette.fromHueAndChroma(hct.hue, maxOf(16.0, hct.chroma / 3))
         return MonetPalette(accent1.tone(90), accent1.tone(80), accent1.tone(30), accent1.tone(20), accent2.tone(80), accent2.tone(80))
     }
+    fun custom(seed: Int): MonetPalette = fromSeed(seed)
 }
 
 /** Lawnchair-inspired geometric masks rendered into a static 250px HyperOS PNG. */

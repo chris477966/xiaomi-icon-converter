@@ -37,6 +37,8 @@ import com.wikiglobal.iconconverter.hyperos.MaterialIconShape
 import com.wikiglobal.iconconverter.hyperos.MaterialPaletteFactory
 import com.wikiglobal.iconconverter.hyperos.MaterialStyledGlyphRenderer
 import com.wikiglobal.iconconverter.hyperos.MaterialGlyphCache
+import com.wikiglobal.iconconverter.hyperos.MaterialPaletteResolver
+import com.wikiglobal.iconconverter.hyperos.MaterialPaletteResolution
 import com.wikiglobal.iconconverter.hyperos.MaterialInstalledStateStore
 import com.wikiglobal.iconconverter.hyperos.MaterialInstalledState
 import com.wikiglobal.iconconverter.hyperos.AutoRecolorStatus
@@ -54,6 +56,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -73,7 +77,7 @@ data class MaterialSourceDiagnostic(
     val lawniconsProviderStatus: LawniconsProviderStatus, val lawniconsMapped: Boolean, val lawniconsDrawableId: Int,
     val aospAdaptiveAvailable: Boolean, val aospCandidateSource: String?, val finalSource: MonetGlyphSource
 )
-data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0, val previewBitmaps: Map<String, android.graphics.Bitmap> = emptyMap()) {
+data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0, val previewBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(), val paletteResolution: MaterialPaletteResolution? = null) {
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
@@ -108,9 +112,11 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val lawniconsProvider = LawniconsThemedProvider(application)
     private val overrideStore = MaterialOverrideStore(application)
     private val styleStore = MaterialStyleStore(application)
+    private val paletteResolver = MaterialPaletteResolver(application)
     private val materialGlyphCache = linkedMapOf<String, MonetGlyphResult>()
     private val glyphDiskCache = MaterialGlyphCache(application)
     private val installedMaterialStore = MaterialInstalledStateStore(application)
+    private val previewRefreshMutex = Mutex()
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
@@ -148,7 +154,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(loading = true, message = null)
         runCatching { withContext(Dispatchers.Default) {
             val style = styleStore.get()
-            val palette = MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) ?: error("当前系统 Monet 调色板不可用")
+            val resolution = paletteResolver.resolve(style) ?: error("当前系统/壁纸 Monet 调色板不可用")
+            val palette = resolution.palette
             val dark = (getApplication<Application>().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
             val sources = linkedMapOf<String, MonetGlyphSource>()
             val pngs = linkedMapOf<String, ByteArray>()
@@ -169,7 +176,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             MonetUiState(
                 System.nanoTime(), palette, dark, sources, pngs, availability, overrides,
                 diagnostics, providerState, style, System.currentTimeMillis(),
-                PreviewBitmapPipeline.decodeMaterialPngs(pngs)
+                PreviewBitmapPipeline.decodeMaterialPngs(pngs),
+                resolution
             )
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
@@ -254,10 +262,11 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         if (!current.available || materialGlyphCache.isEmpty()) {
             _uiState.value = _uiState.value.copy(monet = current.copy(style = style)); return@launch
         }
-        val palette = withContext(Dispatchers.Default) { MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) } ?: return@launch
+        val resolution = withContext(Dispatchers.Default) { paletteResolver.resolve(style) } ?: return@launch
+        val palette = resolution.palette
         val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape)?.let { key to it } }.toMap() }
         val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
-        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, previewBitmaps = previews, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
+        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, previewBitmaps = previews, paletteResolution = resolution, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
     }
 
     /**
@@ -266,32 +275,36 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
      * the installed-theme recolor path.
      */
     fun refreshSystemMonetPreviewIfChanged() = viewModelScope.launch {
-        val current = _uiState.value.monet
-        if (current.style.colorMode != MaterialColorMode.SYSTEM_MONET ||
-            !current.available || materialGlyphCache.isEmpty()) return@launch
-        val newPalette = withContext(Dispatchers.Default) { MonetPaletteReader.read() } ?: return@launch
-        if (!MaterialPreviewRefreshPolicy.shouldRerender(
-                current.style.colorMode,
-                current.palette?.hash(),
-                newPalette.hash(),
-                materialGlyphCache.isNotEmpty()
-            )) return@launch
-        val rendered = withContext(Dispatchers.Default) {
-            materialGlyphCache.mapNotNull { (key, glyph) ->
-                MaterialStyledGlyphRenderer.render(glyph, newPalette, current.dark, current.style.shape)
-                    ?.let { key to it }
-            }.toMap()
+        previewRefreshMutex.withLock {
+            val current = _uiState.value.monet
+            if (current.style.colorMode !in setOf(MaterialColorMode.SYSTEM_MONET, MaterialColorMode.WALLPAPER_AUTO) ||
+                !current.available || materialGlyphCache.isEmpty()) return@withLock
+            val resolution = withContext(Dispatchers.Default) { paletteResolver.resolve(current.style) } ?: return@withLock
+            val newPalette = resolution.palette
+            if (!MaterialPreviewRefreshPolicy.shouldRerender(
+                    current.style.colorMode,
+                    current.palette?.hash(),
+                    newPalette.hash(),
+                    materialGlyphCache.isNotEmpty()
+                )) return@withLock
+            val rendered = withContext(Dispatchers.Default) {
+                materialGlyphCache.mapNotNull { (key, glyph) ->
+                    MaterialStyledGlyphRenderer.render(glyph, newPalette, current.dark, current.style.shape)
+                        ?.let { key to it }
+                }.toMap()
+            }
+            val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
+            // Preserve source/override/availability/diagnostic maps verbatim. A palette
+            // refresh is serialized rendering work only, never source discovery.
+            _uiState.value = _uiState.value.copy(monet = current.copy(
+                generationId = System.nanoTime(),
+                palette = newPalette,
+                generated = rendered,
+                previewBitmaps = previews,
+                paletteResolution = resolution,
+                timestamp = System.currentTimeMillis()
+            ))
         }
-        val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
-        // Preserve source/override/availability/diagnostic maps verbatim: refreshing a
-        // palette is rendering work only and must not change source policy.
-        _uiState.value = _uiState.value.copy(monet = current.copy(
-            generationId = System.nanoTime(),
-            palette = newPalette,
-            generated = rendered,
-            previewBitmaps = previews,
-            timestamp = System.currentTimeMillis()
-        ))
     }
 
     fun applyMonetToSystem() = viewModelScope.launch {

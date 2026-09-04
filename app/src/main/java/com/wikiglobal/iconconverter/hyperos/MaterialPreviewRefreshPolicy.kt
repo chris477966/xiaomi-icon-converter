@@ -15,7 +15,7 @@ object MaterialPreviewRefreshPolicy {
         newPaletteHash: String?,
         hasCachedGlyphs: Boolean
     ) = Plan(
-        rerender = colorMode == MaterialColorMode.SYSTEM_MONET &&
+        rerender = colorMode != MaterialColorMode.CUSTOM &&
             hasCachedGlyphs &&
             newPaletteHash != null &&
             currentPaletteHash != newPaletteHash

@@ -6,6 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MaterialStyleTest {
+    @Test fun `three color modes are available and new style defaults to wallpaper auto`() {
+        assertEquals(3, MaterialColorMode.entries.size)
+        assertEquals(MaterialColorMode.WALLPAPER_AUTO, MaterialStyle().colorMode)
+    }
     @Test fun `system Monet mode preserves system palette`() {
         val system = MonetPalette(1, 2, 7, 8, 20, 30)
         assertEquals(system, MaterialPaletteFactory.forStyle(MaterialStyle(colorMode = MaterialColorMode.SYSTEM_MONET), system))
