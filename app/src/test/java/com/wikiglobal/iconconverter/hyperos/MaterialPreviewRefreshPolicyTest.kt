@@ -13,6 +13,13 @@ class MaterialPreviewRefreshPolicyTest {
         assertTrue(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.WALLPAPER_AUTO, "old", "new", true))
     }
 
+    @Test fun `swatch-only wallpaper change commits once without rendering`() {
+        val plan = MaterialPreviewRefreshPolicy.plan(MaterialColorMode.WALLPAPER_AUTO, "same", "same", true, "old-swatches", "new-swatches")
+        assertFalse(plan.rerender)
+        assertTrue(plan.metadataOnly)
+        assertTrue(plan.stateCommits == 1)
+    }
+
     @Test fun `SYSTEM_MONET_UNCHANGED_NO_RERENDER`() {
         assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "same", "same", true))
     }

@@ -17,8 +17,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,7 +59,7 @@ import com.wikiglobal.iconconverter.model.IconMatch
                 Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(6.dp), verticalAlignment=Alignment.CenterVertically) {
                     FilterChip(selected=false,onClick={colorSheet=true},label={Text(materialColorModeLabel(style.colorMode))})
                     FilterChip(selected=false,onClick={shapeSheet=true},label={Text(shapeLabel(style.shape))})
-                    AssistChip(onClick={},label={Text("自动来源")})
+                    Text("自动来源：Native → Lawnicons → AOSP → Keep", style=MaterialTheme.typography.labelSmall)
                 }
                 if (style.colorMode != MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) }); Text("壁纸变化后自动应用图标", style=MaterialTheme.typography.bodySmall) }
                 if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog=true }) { Text("选择 Seed Color") } }
@@ -132,18 +130,26 @@ import com.wikiglobal.iconconverter.model.IconMatch
         Text("图标形状", style=MaterialTheme.typography.titleLarge)
         MaterialIconShape.entries.forEach { shape ->
             Row(Modifier.fillMaxWidth().clickable { onSelect(style.copy(shape=shape)) }.padding(vertical=6.dp), verticalAlignment=Alignment.CenterVertically) {
-                Surface(Modifier.size(56.dp), color=androidx.compose.ui.graphics.Color(palette?.colors(dark)?.first ?: 0xffd9e2ff.toInt()), shape=shapePreviewShape(shape)) { Box(contentAlignment=Alignment.Center) { Text("Aa",style=MaterialTheme.typography.titleMedium) } }
+                MaterialShapePreview(shape, palette, dark)
                 Text(shapeLabel(shape), Modifier.padding(start=12.dp))
             }
         }
     }
 }
 
-private fun shapePreviewShape(shape: MaterialIconShape): androidx.compose.ui.graphics.Shape = when (shape) {
-    MaterialIconShape.HYPEROS -> RoundedCornerShape(13.dp)
-    MaterialIconShape.CIRCLE -> CircleShape
-    MaterialIconShape.SQUIRCLE -> RoundedCornerShape(20.dp)
-    MaterialIconShape.ROUNDED_SQUARE -> RoundedCornerShape(17.dp)
+/** Uses the production shape renderer directly; no approximation or source discovery. */
+@Composable private fun MaterialShapePreview(shape: MaterialIconShape, palette: com.wikiglobal.iconconverter.hyperos.MonetPalette?, dark: Boolean) {
+    val color = palette?.colors(dark)?.first ?: 0xffd9e2ff.toInt()
+    val bitmap = remember(shape, color) {
+        com.wikiglobal.iconconverter.hyperos.MaterialIconShapeRenderer.previewBitmap(shape, color)
+    }
+    val image = remember(bitmap) { bitmap.asImageBitmap() }
+    Image(
+        painter = BitmapPainter(image, filterQuality = FilterQuality.High),
+        contentDescription = shapeLabel(shape),
+        modifier = Modifier.size(56.dp),
+        contentScale = ContentScale.Fit
+    )
 }
 
 @Composable private fun PaletteSwatch(color: Int?, label: String) { if (color != null) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(14.dp), color=androidx.compose.ui.graphics.Color(color), shape=MaterialTheme.shapes.small) {}; Text(label,Modifier.padding(start=3.dp),style=MaterialTheme.typography.labelSmall) } }

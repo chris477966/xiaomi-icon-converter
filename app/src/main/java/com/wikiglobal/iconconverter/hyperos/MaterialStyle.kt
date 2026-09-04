@@ -63,6 +63,16 @@ object MaterialIconShapeRenderer {
             MaterialIconShape.SQUIRCLE -> canvas.drawPath(squircle(bounds), paint)
         }
     }
+    /** Lightweight preview using the exact production geometry and bounds. */
+    fun previewBitmap(shape: MaterialIconShape, color: Int, size: Int = 56): Bitmap {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.save()
+        canvas.scale(size / 250f, size / 250f)
+        drawBackground(canvas, shape, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color })
+        canvas.restore()
+        return bitmap
+    }
     data class CubicCorner(val startX:Float,val startY:Float,val control1X:Float,val control1Y:Float,val control2X:Float,val control2Y:Float,val endX:Float,val endY:Float)
     fun roundedSquareRadius(rect:RectF)=roundedSquareRadius(rect.width(),rect.height())
     fun roundedSquareRadius(width:Float,height:Float)=minOf(width,height)/2f*LAWNCHAIR_ROUNDED_SQUARE_SCALE

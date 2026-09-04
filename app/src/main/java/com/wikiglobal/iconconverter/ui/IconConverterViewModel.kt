@@ -281,12 +281,25 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 !current.available || materialGlyphCache.isEmpty()) return@withLock
             val resolution = withContext(Dispatchers.Default) { paletteResolver.resolve(current.style) } ?: return@withLock
             val newPalette = resolution.palette
-            if (!MaterialPreviewRefreshPolicy.shouldRerender(
+            val refreshPlan = MaterialPreviewRefreshPolicy.plan(
                     current.style.colorMode,
-                    current.paletteResolution?.hash ?: current.palette?.hash(),
-                    resolution.hash,
-                    materialGlyphCache.isNotEmpty()
-                )) return@withLock
+                    current.palette?.hash(),
+                    resolution.renderHash,
+                    materialGlyphCache.isNotEmpty(),
+                    current.paletteResolution?.wallpaperStateHash,
+                    resolution.wallpaperStateHash
+                )
+            if (!refreshPlan.rerender) {
+                // Secondary/tertiary wallpaper swatches may change without changing
+                // the primary-derived palette. Update only the resolver metadata.
+                if (current.paletteResolution?.wallpaperStateHash != resolution.wallpaperStateHash || current.paletteResolution == null) {
+                    _uiState.value = _uiState.value.copy(monet = current.copy(
+                        paletteResolution = resolution,
+                        timestamp = System.currentTimeMillis()
+                    ))
+                }
+                return@withLock
+            }
             val rendered = withContext(Dispatchers.Default) {
                 materialGlyphCache.mapNotNull { (key, glyph) ->
                     MaterialStyledGlyphRenderer.render(glyph, newPalette, current.dark, current.style.shape)

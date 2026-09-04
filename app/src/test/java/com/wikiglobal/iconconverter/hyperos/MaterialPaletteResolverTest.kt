@@ -18,6 +18,8 @@ class MaterialPaletteResolverTest {
         assertEquals(colors.primary, result.seedColor)
         assertFalse(result.fallbackUsed)
         assertEquals(MaterialPaletteFactory.fromSeed(colors.primary!!), result.palette)
+        assertEquals(result.palette.hash(), result.renderHash)
+        assertEquals(colors.hash, result.wallpaperStateHash)
     }
 
     @Test fun `wallpaper unavailable falls back to system palette`() = runBlocking {
