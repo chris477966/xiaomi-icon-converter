@@ -40,6 +40,8 @@ import com.wikiglobal.iconconverter.hyperos.MaterialGlyphCache
 import com.wikiglobal.iconconverter.hyperos.MaterialInstalledStateStore
 import com.wikiglobal.iconconverter.hyperos.MaterialInstalledState
 import com.wikiglobal.iconconverter.hyperos.AutoRecolorStatus
+import com.wikiglobal.iconconverter.hyperos.MaterialPreviewRefreshPolicy
+import com.wikiglobal.iconconverter.hyperos.SystemMonetChangeNotifier
 import com.wikiglobal.iconconverter.matcher.IconMatcher
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
@@ -112,7 +114,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
 
-    init { reloadApps() }
+    init {
+        reloadApps()
+        viewModelScope.launch {
+            SystemMonetChangeNotifier.changes.collect {
+                refreshSystemMonetPreviewIfChanged()
+            }
+        }
+    }
 
     /** Explicit only: app startup never asks for su authorization. */
     fun checkRoot() = viewModelScope.launch {
@@ -120,7 +129,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(rootAvailable = available, message = if (available) "Root 可用" else "Root 不可用")
     }
 
-    fun selectThemeMode(mode: ThemeMode) { _uiState.value = _uiState.value.copy(themeMode = mode) }
+    fun selectThemeMode(mode: ThemeMode) {
+        _uiState.value = _uiState.value.copy(themeMode = mode)
+        if (mode == ThemeMode.MATERIAL_YOU) refreshSystemMonetPreviewIfChanged()
+    }
 
     private data class ResolvedMaterialComponent(
         val key: String,
@@ -237,6 +249,38 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val palette = MaterialPaletteFactory.forStyle(style, MonetPaletteReader.read()) ?: return@launch
         val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape)?.let { key to it } }.toMap() }
         _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
+    }
+
+    /**
+     * Repaints an existing System Monet preview from cached masks only.  It is
+     * intentionally independent from provider discovery, WorkManager, Root and
+     * the installed-theme recolor path.
+     */
+    fun refreshSystemMonetPreviewIfChanged() = viewModelScope.launch {
+        val current = _uiState.value.monet
+        if (current.style.colorMode != MaterialColorMode.SYSTEM_MONET ||
+            !current.available || materialGlyphCache.isEmpty()) return@launch
+        val newPalette = MonetPaletteReader.read() ?: return@launch
+        if (!MaterialPreviewRefreshPolicy.shouldRerender(
+                current.style.colorMode,
+                current.palette?.hash(),
+                newPalette.hash(),
+                materialGlyphCache.isNotEmpty()
+            )) return@launch
+        val rendered = withContext(Dispatchers.Default) {
+            materialGlyphCache.mapNotNull { (key, glyph) ->
+                MaterialStyledGlyphRenderer.render(glyph, newPalette, current.dark, current.style.shape)
+                    ?.let { key to it }
+            }.toMap()
+        }
+        // Preserve source/override/availability/diagnostic maps verbatim: refreshing a
+        // palette is rendering work only and must not change source policy.
+        _uiState.value = _uiState.value.copy(monet = current.copy(
+            generationId = System.nanoTime(),
+            palette = newPalette,
+            generated = rendered,
+            timestamp = System.currentTimeMillis()
+        ))
     }
 
     fun applyMonetToSystem() = viewModelScope.launch {

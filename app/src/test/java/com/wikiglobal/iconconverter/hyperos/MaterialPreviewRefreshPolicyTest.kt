@@ -1,0 +1,27 @@
+package com.wikiglobal.iconconverter.hyperos
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class MaterialPreviewRefreshPolicyTest {
+    @Test fun `SYSTEM_MONET_CHANGED_PREVIEW_RERENDER`() {
+        assertTrue(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "old", "new", true))
+    }
+
+    @Test fun `SYSTEM_MONET_UNCHANGED_NO_RERENDER`() {
+        assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "same", "same", true))
+    }
+
+    @Test fun `CUSTOM_MONET_CHANGE_NO_RERENDER`() {
+        assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.CUSTOM, "old", "new", true))
+    }
+
+    @Test fun `no cached glyphs means no preview refresh`() {
+        assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "old", "new", false))
+    }
+
+    @Test fun `unavailable palette means no preview refresh`() {
+        assertFalse(MaterialPreviewRefreshPolicy.shouldRerender(MaterialColorMode.SYSTEM_MONET, "old", null, true))
+    }
+}

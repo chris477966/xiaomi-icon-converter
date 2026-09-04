@@ -52,4 +52,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Preview-only palette reconciliation. This never asks for Root or applies a theme.
+        viewModel.refreshSystemMonetPreviewIfChanged()
+    }
 }
