@@ -52,7 +52,26 @@ data class MonetPalette(
     fun colors(dark:Boolean)=if(dark)(accent2_800 ?: accent1_700) to accent1_200 else accent1_100 to accent1_700
     fun hash()=MessageDigest.getInstance("SHA-256").digest(listOf(accent1_100,accent1_200,accent1_700,accent1_800,accent2_100,accent2_800,accent3_100).joinToString().toByteArray()).joinToString(""){ "%02x".format(it)}
 }
-object MonetPaletteReader { fun read(r:Resources=Resources.getSystem()):MonetPalette?=runCatching{fun c(n:String):Int{val i=r.getIdentifier(n,"color","android");require(i!=0);return r.getColor(i,null)};MonetPalette(c("system_accent1_100"),c("system_accent1_200"),c("system_accent1_700"),c("system_accent1_800"),c("system_accent2_100"),c("system_accent3_100"),c("system_accent2_800"))}.getOrNull() }
+object MonetPaletteReader {
+    fun read(r:Resources=Resources.getSystem()):MonetPalette? = runCatching {
+        read { name ->
+            val id = r.getIdentifier(name, "color", "android")
+            require(id != 0)
+            r.getColor(id, null)
+        }
+    }.getOrNull()
+
+    /** Named-resource seam keeps the production order directly testable. */
+    internal fun read(color: (String) -> Int): MonetPalette = MonetPalette(
+        color("system_accent1_100"),
+        color("system_accent1_200"),
+        color("system_accent1_700"),
+        color("system_accent1_800"),
+        color("system_accent2_100"),
+        color("system_accent2_800"),
+        color("system_accent3_100")
+    )
+}
 object MonochromeResolver {
     fun nativeOrNull(icon: Drawable?, c: GlyphSafetyConfig = GlyphSafetyConfig()): MonetGlyphResult? { val mono=(icon as? AdaptiveIconDrawable)?.takeIf{Build.VERSION.SDK_INT>=33}?.monochrome ?: return null; return native(mono,c).takeIf { it.alphaMask != null } }
     /** Production pipeline intentionally excludes experimental background segmentation and foreground guessing. */

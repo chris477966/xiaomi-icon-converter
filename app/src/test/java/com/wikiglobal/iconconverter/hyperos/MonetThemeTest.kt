@@ -22,4 +22,37 @@ class MonetThemeTest {
         val alpha = IntArray(100) { i -> if (i % 10 == 0 || i % 10 == 1) 255 else 0 }
         assertEquals(MonetGlyphSource.UNAVAILABLE_OPAQUE_EDGES, GlyphSafetyAnalyzer.reject(GlyphSafetyAnalyzer.analyze(alpha, 10, 10, config), config))
     }
+
+    @Test fun `system resource roles map in declared order`() {
+        val values = mapOf(
+            "system_accent1_100" to 101,
+            "system_accent1_200" to 102,
+            "system_accent1_700" to 107,
+            "system_accent1_800" to 108,
+            "system_accent2_100" to 201,
+            "system_accent2_800" to 208,
+            "system_accent3_100" to 301
+        )
+        val system = MonetPaletteReader.read { name -> values.getValue(name) }
+        assertEquals(101, system.accent1_100)
+        assertEquals(102, system.accent1_200)
+        assertEquals(107, system.accent1_700)
+        assertEquals(108, system.accent1_800)
+        assertEquals(201, system.accent2_100)
+        assertEquals(208, system.accent2_800)
+        assertEquals(301, system.accent3_100)
+    }
+
+    @Test fun `system light and dark roles use AOSP shade semantics`() {
+        val system = MonetPaletteReader.read { name ->
+            mapOf(
+                "system_accent1_100" to 101, "system_accent1_200" to 102,
+                "system_accent1_700" to 107, "system_accent1_800" to 108,
+                "system_accent2_100" to 201, "system_accent2_800" to 208,
+                "system_accent3_100" to 301
+            ).getValue(name)
+        }
+        assertEquals(101 to 107, system.colors(false))
+        assertEquals(208 to 102, system.colors(true))
+    }
 }
