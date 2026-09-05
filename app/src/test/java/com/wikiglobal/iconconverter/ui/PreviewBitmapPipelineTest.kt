@@ -11,7 +11,7 @@ class PreviewBitmapPipelineTest {
     }
 
     @Test fun `PREVIEW_BITMAP_SOURCE_250X250`() {
-        assertEquals(HyperOs3ThemePatcher.ICON_SIZE, PreviewBitmapPipeline.MATERIAL_PNG_SIZE)
+        assertEquals(HyperOs3ThemePatcher.CANONICAL_SIZE, PreviewBitmapPipeline.MATERIAL_PNG_SIZE)
     }
 
     @Test fun `stable component keys preserve activity identity`() {

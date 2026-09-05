@@ -27,7 +27,7 @@ object GlyphSafetyAnalyzer {
     fun reject(a: GlyphAnalysis, c: GlyphSafetyConfig = GlyphSafetyConfig()): MonetGlyphSource? = when { a.nonTransparentPixels==0||a.alphaCoverage<c.minimumAlphaCoverage->MonetGlyphSource.UNAVAILABLE_EMPTY; a.alphaCoverage>c.maximumAlphaCoverage->MonetGlyphSource.UNAVAILABLE_EXCESSIVE_COVERAGE; a.touchesAllEdges->MonetGlyphSource.UNAVAILABLE_FULL_BLEED; a.edgeAlphaCoverage>c.maximumEdgeAlphaCoverage->MonetGlyphSource.UNAVAILABLE_OPAQUE_EDGES; else->null }
 }
 private object AlphaMaskRenderer {
-    fun render(d: Drawable): Bitmap { val s=HyperOs3ThemePatcher.ICON_SIZE; val b=Bitmap.createBitmap(s,s,Bitmap.Config.ARGB_8888); val old=Rect(d.bounds); d.setBounds(0,0,s,s); d.draw(Canvas(b)); d.bounds=old; val p=IntArray(s*s);b.getPixels(p,0,s,0,0,s,s);p.indices.forEach{p[it]=(p[it] ushr 24) shl 24};b.setPixels(p,0,s,0,0,s,s);return b }
+    fun render(d: Drawable): Bitmap { val s=IconShapePathFactory.CANONICAL_SIZE.toInt(); val b=Bitmap.createBitmap(s,s,Bitmap.Config.ARGB_8888); val old=Rect(d.bounds); d.setBounds(0,0,s,s); d.draw(Canvas(b)); d.bounds=old; val p=IntArray(s*s);b.getPixels(p,0,s,0,0,s,s);p.indices.forEach{p[it]=(p[it] ushr 24) shl 24};b.setPixels(p,0,s,0,0,s,s);return b }
     fun analysis(b: Bitmap,c: GlyphSafetyConfig)=IntArray(b.width*b.height).also{b.getPixels(it,0,b.width,0,0,b.width,b.height);it.indices.forEach{i->it[i]=it[i] ushr 24}}.let{GlyphSafetyAnalyzer.analyze(it,b.width,b.height,c)}
 }
 
@@ -81,9 +81,9 @@ object MonochromeResolver {
 }
 /** One final viewport for every trusted mask provider; providers never choose their own output size. */
 object MonetGlyphLayout {
-    const val OUTPUT_SIZE = HyperOs3ThemePatcher.ICON_SIZE
+    const val OUTPUT_SIZE = HyperOs3ThemePatcher.CANONICAL_SIZE
     val backgroundBounds = android.graphics.RectF(12f, 12f, 238f, 238f)
     val glyphBounds = Rect(42, 42, 208, 208)
 }
 object MonetGlyphRenderer { fun render(r:MonetGlyphResult,p:MonetPalette,dark:Boolean):ByteArray? { val m=r.alphaMask?:return null;val(bg,fg)=p.colors(dark);val s=MonetGlyphLayout.OUTPUT_SIZE;val b=Bitmap.createBitmap(s,s,Bitmap.Config.ARGB_8888);val c=Canvas(b);c.drawRoundRect(MonetGlyphLayout.backgroundBounds,58f,58f,Paint(Paint.ANTI_ALIAS_FLAG).apply{color=bg});c.drawBitmap(m,null,MonetGlyphLayout.glyphBounds,Paint(Paint.ANTI_ALIAS_FLAG).apply{colorFilter=PorterDuffColorFilter(fg,PorterDuff.Mode.SRC_IN)});return if(MonetOutputValidator.validate(b,fg))IconRenderer.bitmapToPng(b)else null} }
-object MonetOutputValidator { fun validate(b:Bitmap,fg:Int,c:GlyphSafetyConfig=GlyphSafetyConfig()):Boolean{if(b.width!=250||b.height!=250)return false;val p=IntArray(62500);b.getPixels(p,0,250,0,0,250,250);val n=p.count{(it ushr 24)>0&&(it and 0x00ffffff)==(fg and 0x00ffffff)};return n>0&&n.toFloat()/p.size<=c.maximumAlphaCoverage} }
+object MonetOutputValidator { fun validate(b:Bitmap,fg:Int,c:GlyphSafetyConfig=GlyphSafetyConfig()):Boolean{if(b.width<=0||b.height<=0||b.width!=b.height)return false;val p=IntArray(b.width*b.height);b.getPixels(p,0,b.width,0,0,b.width,b.height);val n=p.count{(it ushr 24)>0&&(it and 0x00ffffff)==(fg and 0x00ffffff)};return n>0&&n.toFloat()/p.size<=c.maximumAlphaCoverage} }

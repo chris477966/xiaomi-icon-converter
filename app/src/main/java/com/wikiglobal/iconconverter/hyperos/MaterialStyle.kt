@@ -5,16 +5,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
-import android.graphics.RectF
 import com.wikiglobal.iconconverter.renderer.IconRenderer
 
 enum class MaterialColorMode { WALLPAPER_AUTO, SYSTEM_MONET, CUSTOM }
-enum class MaterialIconShape { HYPEROS, CIRCLE, SQUIRCLE, ROUNDED_SQUARE }
-data class MaterialStyle(val colorMode: MaterialColorMode = MaterialColorMode.WALLPAPER_AUTO, val customSeedColor: Int = Color.BLUE, val shape: MaterialIconShape = MaterialIconShape.HYPEROS, val followWallpaperMonet: Boolean = false) {
+/** Source-compatible name for v0.2.9 callers; all persistence uses shared IconShape. */
+typealias MaterialIconShape = IconShape
+data class MaterialStyle(val colorMode: MaterialColorMode = MaterialColorMode.WALLPAPER_AUTO, val customSeedColor: Int = Color.BLUE, val shape: IconShape = IconShape.HYPEROS, val followWallpaperMonet: Boolean = false) {
     /** New API name; the old property remains as the persisted compatibility field. */
     val autoApplyWallpaperChanges: Boolean get() = followWallpaperMonet
     fun normalized() = if (colorMode == MaterialColorMode.CUSTOM) copy(followWallpaperMonet = false) else this
@@ -25,7 +24,7 @@ class MaterialStyleStore(context: Context) {
     fun get() = MaterialStyle(
         runCatching { MaterialColorMode.valueOf(prefs.getString("colorMode", MaterialColorMode.WALLPAPER_AUTO.name)!!) }.getOrDefault(MaterialColorMode.WALLPAPER_AUTO),
         prefs.getInt("seed", Color.BLUE),
-        runCatching { MaterialIconShape.valueOf(prefs.getString("shape", MaterialIconShape.HYPEROS.name)!!) }.getOrDefault(MaterialIconShape.HYPEROS),
+        runCatching { IconShape.valueOf(prefs.getString("shape", IconShape.HYPEROS.name)!!) }.getOrDefault(IconShape.HYPEROS),
         prefs.getBoolean("follow", false)
     )
     fun set(style: MaterialStyle) { val normalized=style.normalized(); prefs.edit().putString("colorMode", normalized.colorMode.name).putInt("seed", normalized.customSeedColor).putString("shape", normalized.shape.name).putBoolean("follow", normalized.followWallpaperMonet).apply() }
@@ -44,54 +43,41 @@ object MaterialPaletteFactory {
 
 /** Lawnchair-inspired geometric masks rendered into a static 250px HyperOS PNG. */
 object MaterialIconShapeRenderer {
-    const val LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE = .2f
-    const val LAWNCHAIR_ROUNDED_SQUARE_SCALE = .6f
+    const val LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE = IconShapePathFactory.LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE
+    const val LAWNCHAIR_ROUNDED_SQUARE_SCALE = IconShapePathFactory.LAWNCHAIR_ROUNDED_SQUARE_SCALE
     val boundsValues = floatArrayOf(12f, 12f, 238f, 238f)
-    val bounds = RectF(boundsValues[0], boundsValues[1], boundsValues[2], boundsValues[3])
-    fun drawBackground(canvas: Canvas, shape: MaterialIconShape, paint: Paint) {
-        when (shape) {
-            MaterialIconShape.HYPEROS -> canvas.drawRoundRect(bounds, 58f, 58f, paint)
-            MaterialIconShape.CIRCLE -> canvas.drawOval(bounds, paint)
-            MaterialIconShape.ROUNDED_SQUARE -> canvas.drawRoundRect(bounds, roundedSquareRadius(bounds), roundedSquareRadius(bounds), paint)
-            MaterialIconShape.SQUIRCLE -> canvas.drawPath(squircle(bounds), paint)
-        }
-    }
+    val bounds = IconShapePathFactory.canonicalBounds
+    fun drawBackground(canvas: Canvas, shape: IconShape, paint: Paint) = canvas.drawPath(IconShapePathFactory.path(shape), paint)
     /** Lightweight preview using the exact production geometry and bounds. */
-    fun previewBitmap(shape: MaterialIconShape, color: Int, size: Int = 56): Bitmap {
+    fun previewBitmap(shape: IconShape, color: Int, size: Int = 56): Bitmap {
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.save()
-        canvas.scale(size / 250f, size / 250f)
+        canvas.scale(size / IconShapePathFactory.CANONICAL_SIZE, size / IconShapePathFactory.CANONICAL_SIZE)
         drawBackground(canvas, shape, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color })
         canvas.restore()
         return bitmap
     }
     data class CubicCorner(val startX:Float,val startY:Float,val control1X:Float,val control1Y:Float,val control2X:Float,val control2Y:Float,val endX:Float,val endY:Float)
-    fun roundedSquareRadius(rect:RectF)=roundedSquareRadius(rect.width(),rect.height())
+    fun roundedSquareRadius(rect:android.graphics.RectF)=roundedSquareRadius(rect.width(),rect.height())
     fun roundedSquareRadius(width:Float,height:Float)=minOf(width,height)/2f*LAWNCHAIR_ROUNDED_SQUARE_SCALE
     /** BaseBezierPath: mapRange(.2, control=(1,0), start=(0,0)) and end=(1,1), then scale by cornerSize. */
-    fun topRightSquircleCorner(rect:RectF)=topRightSquircleCorner(rect.left,rect.top,rect.right,rect.bottom)
+    fun topRightSquircleCorner(rect:android.graphics.RectF)=topRightSquircleCorner(rect.left,rect.top,rect.right,rect.bottom)
     fun topRightSquircleCorner(left:Float,top:Float,right:Float,bottom:Float):CubicCorner { val size=minOf(right-left,bottom-top)/2f;val offset=size*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE;return CubicCorner(right-size,top,right-offset,top,right,top+offset,right,top+size) }
     /** Lawnchair Squircle BaseBezierPath with cornerSize=min(bounds)/2 and controlDistance=.2. */
-    fun squircle(rect: RectF): Path {
-        val tr=topRightSquircleCorner(rect);val size=minOf(rect.width(),rect.height())/2f;val offset=size*LAWNCHAIR_SQUIRCLE_CONTROL_DISTANCE
-        return Path().apply {
-            moveTo(tr.startX,tr.startY);cubicTo(tr.control1X,tr.control1Y,tr.control2X,tr.control2Y,tr.endX,tr.endY)
-            cubicTo(rect.right,rect.bottom-offset,rect.right-offset,rect.bottom,rect.right-size,rect.bottom)
-            cubicTo(rect.left+offset,rect.bottom,rect.left,rect.bottom-offset,rect.left,rect.bottom-size)
-            cubicTo(rect.left,rect.top+offset,rect.left+offset,rect.top,rect.left+size,rect.top);close()
-        }
-    }
+    fun squircle(rect: android.graphics.RectF) = IconShapePathFactory.squircle(rect)
 }
 
 /** Style-aware renderer intentionally leaves the v0.2.8 MonetGlyphRenderer untouched. */
 object MaterialStyledGlyphRenderer {
-    fun render(result: MonetGlyphResult, palette: MonetPalette, dark: Boolean, shape: MaterialIconShape): ByteArray? {
+    fun render(result: MonetGlyphResult, palette: MonetPalette, dark: Boolean, shape: IconShape, targetSize: Int = HyperOsThemeProfileDetector.FALLBACK_SIZE): ByteArray? {
         val mask = result.alphaMask ?: return null; val (background, foreground) = palette.colors(dark)
-        val bitmap = Bitmap.createBitmap(HyperOs3ThemePatcher.ICON_SIZE, HyperOs3ThemePatcher.ICON_SIZE, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+        canvas.save(); canvas.scale(targetSize / IconShapePathFactory.CANONICAL_SIZE, targetSize / IconShapePathFactory.CANONICAL_SIZE)
         MaterialIconShapeRenderer.drawBackground(canvas, shape, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = background })
         canvas.drawBitmap(mask, null, Rect(42, 42, 208, 208), Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = PorterDuffColorFilter(foreground, PorterDuff.Mode.SRC_IN) })
+        canvas.restore()
         return if (MonetOutputValidator.validate(bitmap, foreground)) IconRenderer.bitmapToPng(bitmap) else null
     }
 }

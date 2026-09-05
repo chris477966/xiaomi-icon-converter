@@ -46,7 +46,10 @@ class MainActivity : ComponentActivity() {
                         onMonetPreview = viewModel::generateMonetPreview,
                         onApplyMonet = viewModel::applyMonetToSystem,
                         onMaterialOverride = viewModel::setMaterialOverride,
-                        onMaterialStyle = viewModel::updateMaterialStyle
+                        onMaterialStyle = viewModel::updateMaterialStyle,
+                        onIconPackStyle = viewModel::updateIconPackStyle,
+                        onConfirmRebase = viewModel::confirmRebaseAndApply,
+                        onDismissRebase = viewModel::dismissRebaseConfirmation
                     )
                 }
             }

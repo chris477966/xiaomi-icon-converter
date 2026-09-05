@@ -82,7 +82,7 @@ object AospMonochromeGenerator {
     }
 
     fun generate(icon: AdaptiveIconDrawable): MonetGlyphResult = runCatching {
-        val viewport = viewport(HyperOs3ThemePatcher.ICON_SIZE, AdaptiveIconDrawable.getExtraInsetFraction())
+        val viewport = viewport(HyperOs3ThemePatcher.CANONICAL_SIZE, AdaptiveIconDrawable.getExtraInsetFraction())
         val flat = Bitmap.createBitmap(viewport.bitmapSize, viewport.bitmapSize, Bitmap.Config.ARGB_8888)
         val flatCanvas = Canvas(flat)
         flatCanvas.drawColor(Color.BLACK)

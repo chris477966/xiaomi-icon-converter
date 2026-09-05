@@ -8,6 +8,22 @@ import java.io.File
 import java.nio.file.Files
 
 class ThemeBackupManagerTest {
+    @Test fun `ownership state is explicit and confirmed rebase copies current without writing active theme`() {
+        val dir = Files.createTempDirectory("theme-rebase").toFile()
+        val source = File(dir, "source").apply { writeBytes(byteArrayOf(1,2,3)) }
+        val fake = FakeRoot(source); val store = MemoryStore(); val manager = ThemeBackupManager(dir, fake, store)
+        val old = manager.ensureOriginalBackup("OS", "Launcher").getOrThrow()
+        fake.replace(byteArrayOf(9,8,7))
+        assertTrue(manager.ownershipState() is ThemeOwnershipState.ExternalChanged)
+        val rebased = manager.rebaseToCurrentTheme("OS3", "Launcher2").getOrThrow()
+        assertEquals(fake.currentSha, HyperOs3ThemePatcher.sha256(rebased.backup))
+        assertTrue(File(rebased.backup.parentFile, "metadata.json").readText().contains("Launcher2"))
+        assertEquals(0, fake.atomicWrites)
+        assertTrue(old.backup.exists())
+        assertTrue(manager.ownershipState() is ThemeOwnershipState.ManagedOriginal)
+        assertEquals("OS3", rebased.hyperOsVersion)
+        assertEquals("Launcher2", rebased.launcherVersion)
+    }
     @Test fun `backup sha metadata and atomic install are guarded and never touch real system`() {
         val dir = Files.createTempDirectory("theme-backup").toFile(); val archive = File(dir, "source.zip").apply { writeBytes(byteArrayOf(1,2,3)) }
         val fake = FakeRoot(archive); val store = MemoryStore(); val manager = ThemeBackupManager(dir, fake, store)
@@ -43,6 +59,7 @@ class ThemeBackupManagerTest {
         fun metadata() = ThemeFileMetadata(currentSha, source.length(), 6101,6101,"755","u:object_r:theme_data_file:s0")
         override fun isRootAvailable() = true
         override fun inspect(path: String) = metadata().copy(sha256 = currentSha)
+        fun replace(bytes: ByteArray) { source.writeBytes(bytes); currentSha = HyperOs3ThemePatcher.sha256(source) }
         override fun copySystemFileTo(source: String, destination: File) = runCatching { destination.parentFile?.mkdirs(); this.source.copyTo(destination, overwrite = true); RootOperation(true) }.getOrElse { RootOperation(false) }
         override fun atomicInstall(localArchive: File, target: String, original: ThemeFileMetadata): RootOperation { atomicWrites++; currentSha = HyperOs3ThemePatcher.sha256(localArchive); return RootOperation(true) }
         override fun refreshIconCache() = RootOperation(true)

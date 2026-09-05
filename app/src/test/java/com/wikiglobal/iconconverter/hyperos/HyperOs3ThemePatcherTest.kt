@@ -24,7 +24,7 @@ class HyperOs3ThemePatcherTest {
         }
         assertEquals(5, result.entryCount); assertTrue(HyperOs3ThemePatcher.validatePatchedArchive(patched, setOf("res/drawable-xxhdpi/com.example.app.png")))
     }
-    @Test fun `png validator enforces 250 alpha icon format`() { assertTrue(PngValidator.validate(png()).isValidIcon); assertFalse(PngValidator.validate(ByteArray(0)).isValidIcon) }
+    @Test fun `png validator validates requested alpha icon format`() { assertTrue(PngValidator.validate(png(), 250).isValidIcon); assertFalse(PngValidator.validate(ByteArray(0), 250).isValidIcon) }
     @Test fun `same package distinct activities retain package and activity specific paths`() {
         val dir = Files.createTempDirectory("activity-patch").toFile(); val base = File(dir, "base.zip"); val patched = File(dir, "patched.zip")
         zip(base, mapOf("transform_config.xml" to "<IconTransform/>".toByteArray(), "fancy_icons/com.android.calendar/manifest.xml" to "kept".toByteArray()))
