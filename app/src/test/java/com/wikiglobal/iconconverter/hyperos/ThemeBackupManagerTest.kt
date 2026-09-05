@@ -79,6 +79,58 @@ class ThemeBackupManagerTest {
         assertTrue(manager.install(patched, "pack", "MATERIAL", null).isFailure)
         assertEquals(original.original, fake.inspect(SuThemeRootExecutor.ACTIVE_ICONS))
     }
+    @Test fun `INSTALL_OPERATION_FAILURE_POSTCONDITION_PASS`() {
+        val fixture = fixture("install-operation-warning")
+        fixture.fake.atomicResults += RootOperation(false, "restorecon warning", RootOperationFailure.RESTORECON_FAIL)
+        val installed = fixture.manager.install(fixture.patched, "pack", "MATERIAL", null).getOrThrow()
+        assertEquals(HyperOs3ThemePatcher.sha256(fixture.patched), installed.lastInstalledSha256)
+        assertEquals(1, fixture.fake.atomicWrites)
+    }
+    @Test fun `ROLLBACK_OPERATION_FAILURE_POSTCONDITION_PASS`() {
+        val fixture = fixture("rollback-operation-warning")
+        fixture.fake.mutateNextInstall = { it.copy(mode = "600") }
+        fixture.fake.atomicResults += RootOperation(true)
+        fixture.fake.atomicResults += RootOperation(false, "restorecon warning", RootOperationFailure.RESTORECON_FAIL)
+        val result = fixture.manager.install(fixture.patched, "pack", "MATERIAL", null)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("ROLLBACK_SUCCEEDED_WITH_OPERATION_WARNING"))
+        assertEquals(fixture.session.original, fixture.fake.inspect(SuThemeRootExecutor.ACTIVE_ICONS))
+    }
+    @Test fun `RESTORECON_SUCCESS_CONTEXT_MATCH_PASS`() {
+        val fixture = fixture("restorecon-success")
+        assertTrue(fixture.manager.install(fixture.patched, "pack", "MATERIAL", null).isSuccess)
+    }
+    @Test fun `RESTORECON_NONZERO_CONTEXT_ALREADY_MATCH_PASS`() {
+        val fixture = fixture("restorecon-nonzero-match")
+        fixture.fake.atomicResults += RootOperation(false, "restorecon nonzero", RootOperationFailure.RESTORECON_FAIL)
+        assertTrue(fixture.manager.install(fixture.patched, "pack", "MATERIAL", null).isSuccess)
+        assertEquals(1, fixture.fake.atomicWrites)
+    }
+    @Test fun `RESTORECON_NONZERO_CONTEXT_MISMATCH_CHCON_PASS`() {
+        val fixture = fixture("restorecon-chcon-pass")
+        fixture.fake.atomicResults += RootOperation(true, warnings = listOf(RootOperationWarning.RESTORECON_NONZERO_BUT_CONTEXT_VALID))
+        assertTrue(fixture.manager.install(fixture.patched, "pack", "MATERIAL", null).isSuccess)
+        assertEquals(HyperOs3ThemePatcher.sha256(fixture.patched), fixture.store.load()!!.lastInstalledSha256)
+    }
+    @Test fun `RESTORECON_NONZERO_CHCON_FAIL_FINAL_MISMATCH_FAIL`() {
+        val fixture = fixture("restorecon-chcon-fail")
+        fixture.fake.mutateNextInstall = { it.copy(selinuxContext = "u:object_r:wrong:s0") }
+        fixture.fake.atomicResults += RootOperation(false, "chcon failed", RootOperationFailure.CHCON_FAIL, targetMayHaveChanged = true)
+        val result = fixture.manager.install(fixture.patched, "pack", "MATERIAL", null)
+        assertTrue(result.isFailure); assertTrue(result.exceptionOrNull()!!.message!!.contains("ROLLBACK_SUCCEEDED"))
+    }
+    @Test fun `FINAL_CONTEXT_IS_SOURCE_OF_TRUTH`() {
+        val fixture = fixture("final-context-truth")
+        fixture.fake.atomicResults += RootOperation(false, "restorecon nonzero", RootOperationFailure.RESTORECON_FAIL)
+        val installed = fixture.manager.install(fixture.patched, "pack", "MATERIAL", null).getOrThrow()
+        assertEquals(HyperOs3ThemePatcher.sha256(fixture.patched), installed.lastInstalledSha256)
+    }
+    private data class Fixture(val fake: FakeRoot, val store: MemoryStore, val manager: ThemeBackupManager, val session: ThemeSession, val patched: File)
+    private fun fixture(name: String): Fixture {
+        val dir = Files.createTempDirectory(name).toFile(); val source = archive(File(dir, "source.zip"), "base"); val patched = archive(File(dir, "patched.zip"), "patched")
+        val fake = FakeRoot(source); val store = MemoryStore(); val manager = ThemeBackupManager(dir, fake, store)
+        return Fixture(fake, store, manager, manager.ensureOriginalBackup("OS", "Launcher").getOrThrow(), patched)
+    }
     private fun archive(file: File, marker: String): File = ZipOutputStream(file.outputStream()).use { out ->
         out.putNextEntry(ZipEntry("transform_config.xml")); out.write(marker.toByteArray()); out.closeEntry()
         file
@@ -88,6 +140,7 @@ class ThemeBackupManagerTest {
         var currentSha = HyperOs3ThemePatcher.sha256(source); var atomicWrites = 0
         var currentMetadata = ThemeFileMetadata(currentSha, source.length(), 6101,6101,"755","u:object_r:theme_data_file:s0")
         var mutateNextInstall: ((ThemeFileMetadata) -> ThemeFileMetadata)? = null
+        val atomicResults = mutableListOf<RootOperation>()
         fun metadata() = currentMetadata.copy(sha256 = currentSha)
         override fun isRootAvailable() = true
         override fun inspect(path: String) = metadata().copy(sha256 = currentSha)
@@ -98,7 +151,7 @@ class ThemeBackupManagerTest {
             currentSha = HyperOs3ThemePatcher.sha256(localArchive)
             val installed = original.copy(sha256 = currentSha, size = localArchive.length())
             currentMetadata = mutateNextInstall?.let { mutation -> mutateNextInstall = null; mutation(installed) } ?: installed
-            return RootOperation(true)
+            return if (atomicResults.isEmpty()) RootOperation(true) else atomicResults.removeAt(0)
         }
         override fun refreshIconCache() = RootOperation(true)
         override fun forceStopLauncher() = RootOperation(true)

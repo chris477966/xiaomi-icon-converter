@@ -37,10 +37,12 @@ object ThemeMetadataVerifier {
 }
 
 enum class RootOperationFailure { COPY_FAIL, STAGED_SHA_FAIL, MV_FAIL, CHOWN_FAIL, CHMOD_FAIL, RESTORECON_FAIL, CHCON_FAIL, POST_INSTALL_METADATA_MISMATCH }
+enum class RootOperationWarning { RESTORECON_NONZERO_BUT_CONTEXT_VALID }
 data class RootOperation(
     val success: Boolean,
     val message: String = "",
     val failure: RootOperationFailure? = null,
+    val warnings: List<RootOperationWarning> = emptyList(),
     /** True only when a failed operation may already have replaced the target. */
     val targetMayHaveChanged: Boolean = false
 )
@@ -77,13 +79,15 @@ class SuThemeRootExecutor : ThemeRootExecutor {
             mv $staged $targetPath || { echo ROOT_FAILURE:MV_FAIL; exit 1; }
             chown ${original.uid}:${original.gid} $targetPath || { echo ROOT_FAILURE:CHOWN_FAIL; exit 1; }
             chmod ${original.mode} $targetPath || { echo ROOT_FAILURE:CHMOD_FAIL; exit 1; }
-            restorecon $targetPath || { echo ROOT_FAILURE:RESTORECON_FAIL; exit 1; }
+            restorecon $targetPath
+            restorecon_status=${'$'}?
             actual_context=${'$'}(ls -Zd $targetPath | awk '{print ${'$'}1}')
             if [ \"${'$'}actual_context\" != $context ]; then
               chcon $context $targetPath || { echo ROOT_FAILURE:CHCON_FAIL; exit 1; }
               actual_context=${'$'}(ls -Zd $targetPath | awk '{print ${'$'}1}')
             fi
             test \"${'$'}actual_context\" = $context || { echo ROOT_FAILURE:POST_INSTALL_METADATA_MISMATCH; exit 1; }
+            if [ "${'$'}restorecon_status" -ne 0 ]; then echo ROOT_WARNING:RESTORECON_NONZERO_BUT_CONTEXT_VALID; fi
             sync
         """.trimIndent()
         val result = run(command)
@@ -91,7 +95,6 @@ class SuThemeRootExecutor : ThemeRootExecutor {
         val mayHaveChanged = result.failure in setOf(
             RootOperationFailure.CHOWN_FAIL,
             RootOperationFailure.CHMOD_FAIL,
-            RootOperationFailure.RESTORECON_FAIL,
             RootOperationFailure.CHCON_FAIL,
             RootOperationFailure.POST_INSTALL_METADATA_MISMATCH
         )
@@ -106,7 +109,8 @@ class SuThemeRootExecutor : ThemeRootExecutor {
         val text = process.inputStream.bufferedReader().readText().trim()
         val success = process.waitFor() == 0
         val failure = if (success) null else RootOperationFailure.entries.firstOrNull { text.lineSequence().any { line -> line.trim() == "ROOT_FAILURE:$it" } } ?: fallback
-        RootOperation(success, text, failure)
+        val warnings = RootOperationWarning.entries.filter { warning -> text.lineSequence().any { line -> line.trim() == "ROOT_WARNING:$warning" } }
+        RootOperation(success, text, failure, warnings)
     }.getOrElse { RootOperation(false, it.message ?: "root command failed", fallback) }
     private fun q(value: String) = "'" + value.replace("'", "'\\''") + "'"
     companion object { const val ACTIVE_ICONS = "/data/system/theme/icons" }

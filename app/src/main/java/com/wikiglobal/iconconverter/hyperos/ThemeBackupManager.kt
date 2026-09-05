@@ -70,20 +70,13 @@ class ThemeBackupManager(private val filesDir: File, private val root: ThemeRoot
         check(HyperOs3ThemePatcher.validatePatchedArchive(patched, emptySet())) { "Patched archive is invalid" }
         val patchedSha = HyperOs3ThemePatcher.sha256(patched)
         val result = root.atomicInstall(patched, SuThemeRootExecutor.ACTIVE_ICONS, session.original)
-        if (!result.success) {
-            // A failure after mv can leave a patched archive with incomplete metadata.
-            // It follows the same strict rollback path as an inspect-time mismatch.
-            if (result.targetMayHaveChanged) rollbackAfterInstallFailure(
-                session,
-                ThemeMetadataVerifier.compare(patchedSha, session.original, root.inspect(SuThemeRootExecutor.ACTIVE_ICONS)),
-                result.failure
-            )
-            error("${result.failure?.name ?: "ROOT_INSTALL_FAIL"}: ${result.message}")
-        }
+        // The system's inspected postcondition is authoritative. A recoverable root
+        // warning (notably restorecon's exit code) cannot override five exact matches.
         val installed = root.inspect(SuThemeRootExecutor.ACTIVE_ICONS)
         val diff = ThemeMetadataVerifier.compare(patchedSha, session.original, installed)
-        if (!diff.allMatch) rollbackAfterInstallFailure(session, diff)
-        session.copy(lastInstalledSha256 = patchedSha, paletteHash = paletteHash).also(store::save)
+        if (diff.allMatch) return@runCatching session.copy(lastInstalledSha256 = patchedSha, paletteHash = paletteHash).also(store::save)
+        if (result.success || result.targetMayHaveChanged) rollbackAfterInstallFailure(session, diff, result.failure)
+        error("${result.failure?.name ?: "ROOT_INSTALL_FAIL"}: ${result.message}")
     }
 
     /** Performs exactly one restore attempt; atomicInstall itself never recurses into rollback. */
@@ -91,15 +84,19 @@ class ThemeBackupManager(private val filesDir: File, private val root: ThemeRoot
         val rollback = root.atomicInstall(session.backup, SuThemeRootExecutor.ACTIVE_ICONS, session.original)
         val restored = root.inspect(SuThemeRootExecutor.ACTIVE_ICONS)
         val restoredDiff = ThemeMetadataVerifier.compare(session.original.sha256, session.original, restored)
-        check(rollback.success && restoredDiff.allMatch) { "ROLLBACK_FAILED" }
-        val rootDetail = rootFailure?.let { "rootFailure=$it\n" }.orEmpty()
-        error("ROLLBACK_SUCCEEDED:\n$rootDetail${ThemeMetadataVerifier.diagnostic(diff)}")
+        if (!restoredDiff.allMatch) {
+            error("ROLLBACK_FAILED:\nrootFailure=${rollback.failure ?: rootFailure}\n${ThemeMetadataVerifier.diagnostic(restoredDiff)}")
+        }
+        val installDetail = rootFailure?.let { "installRootFailure=$it\n" }.orEmpty()
+        val status = if (rollback.success) "ROLLBACK_SUCCEEDED" else "ROLLBACK_SUCCEEDED_WITH_OPERATION_WARNING"
+        val rollbackDetail = if (rollback.success) "" else "rootFailure=${rollback.failure}\n"
+        error("$status:\n$installDetail$rollbackDetail${ThemeMetadataVerifier.diagnostic(diff)}")
     }
     fun restore(): Result<Unit> = runCatching {
         val session = store.load() ?: error("No managed backup")
         val current = root.inspect(SuThemeRootExecutor.ACTIVE_ICONS) ?: error("Cannot inspect current theme")
         check(current.sha256 == session.lastInstalledSha256) { "系统图标主题已在本工具之外发生变化。为避免覆盖当前主题，自动恢复已停止。" }
-        check(root.atomicInstall(session.backup, SuThemeRootExecutor.ACTIVE_ICONS, session.original).success) { "Atomic restore failed" }
+        root.atomicInstall(session.backup, SuThemeRootExecutor.ACTIVE_ICONS, session.original)
         val restored = root.inspect(SuThemeRootExecutor.ACTIVE_ICONS)
         check(ThemeMetadataVerifier.compare(session.original.sha256, session.original, restored).allMatch) { "Restore verification failed" }
         store.clear()
