@@ -496,7 +496,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 monet.paletteResolution?.let { resolution ->
                     appendLine("PALETTE_SOURCE=${resolution.source}")
                     appendLine("PALETTE_FALLBACK_USED=${resolution.fallbackUsed}")
-                    appendLine("WALLPAPER_PRIMARY_SEED=${resolution.seedColor?.let { "%08x".format(it) } ?: "NOT_AVAILABLE"}")
+                    appendLine("WALLPAPER_PRIMARY_SEED=${resolution.wallpaperColors?.primary?.let { "%08x".format(it) } ?: "NOT_AVAILABLE"}")
+                    appendLine("PALETTE_SEED=${resolution.seedColor?.let { "%08x".format(it) } ?: "NOT_AVAILABLE"}")
                     appendLine("A1_100=%08x".format(resolution.palette.accent1_100))
                     appendLine("A1_700=%08x".format(resolution.palette.accent1_700))
                     appendLine("A2_800=%08x".format(resolution.palette.accent2_800 ?: 0))
