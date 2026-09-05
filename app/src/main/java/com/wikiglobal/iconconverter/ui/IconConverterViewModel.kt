@@ -493,6 +493,15 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         runCatching { withContext(Dispatchers.IO) {
             val report = buildString {
                 appendLine("MATERIAL_SOURCE_REPORT")
+                monet.paletteResolution?.let { resolution ->
+                    appendLine("PALETTE_SOURCE=${resolution.source}")
+                    appendLine("PALETTE_FALLBACK_USED=${resolution.fallbackUsed}")
+                    appendLine("WALLPAPER_PRIMARY_SEED=${resolution.seedColor?.let { "%08x".format(it) } ?: "NOT_AVAILABLE"}")
+                    appendLine("A1_100=%08x".format(resolution.palette.accent1_100))
+                    appendLine("A1_700=%08x".format(resolution.palette.accent1_700))
+                    appendLine("A2_800=%08x".format(resolution.palette.accent2_800 ?: 0))
+                    appendLine("A1_200=%08x".format(resolution.palette.accent1_200))
+                }
                 appendLine("LAWNICONS_PROVIDER=${monet.lawniconsProvider.status}")
                 appendLine("LAWNICONS_ENTRY_COUNT=${monet.lawniconsProvider.entryCount}")
                 monet.lawniconsProvider.lastError?.let { appendLine("LAWNICONS_ERROR=$it") }
