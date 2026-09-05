@@ -8,21 +8,22 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
+import android.content.res.Resources
 import com.wikiglobal.iconconverter.hyperos.IconShape
 import com.wikiglobal.iconconverter.hyperos.IconShapePathFactory
 
 /** Final production renderer shared by icon-pack Apply and icon-pack preview. */
 object AdaptiveIconPackRenderer {
     const val ADAPTIVE_SAFE_SCALE = .66f
-    fun renderPng(drawable: Drawable, shape: IconShape, targetSize: Int): ByteArray =
-        IconRenderer.bitmapToPng(renderBitmap(drawable, shape, targetSize))
+    fun renderPng(drawable: Drawable, shape: IconShape, targetSize: Int, resources: Resources? = null): ByteArray =
+        IconRenderer.bitmapToPng(renderBitmap(drawable, shape, targetSize, resources))
 
-    fun renderBitmap(drawable: Drawable, shape: IconShape, targetSize: Int): Bitmap {
+    fun renderBitmap(drawable: Drawable, shape: IconShape, targetSize: Int, resources: Resources? = null): Bitmap {
         require(targetSize > 0)
         val output = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output).apply { drawColor(Color.TRANSPARENT) }
         canvas.save(); canvas.scale(targetSize / IconShapePathFactory.CANONICAL_SIZE, targetSize / IconShapePathFactory.CANONICAL_SIZE)
-        canvas.clipPath(IconShapePathFactory.path(shape))
+        canvas.clipPath(IconShapePathFactory.path(shape, resources = resources))
         if (drawable is AdaptiveIconDrawable) drawAdaptive(canvas, drawable) else drawLegacy(canvas, drawable)
         canvas.restore()
         return output

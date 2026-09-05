@@ -19,7 +19,7 @@ object IconShapePathFactory {
     val canonicalBounds = RectF(12f, 12f, 238f, 238f)
 
     fun path(shape: IconShape, bounds: RectF = canonicalBounds, resources: Resources? = null): Path = when (shape) {
-        IconShape.SYSTEM -> systemPath(resources, bounds) ?: path(IconShape.HYPEROS, bounds)
+        IconShape.SYSTEM -> systemPath(resources ?: Resources.getSystem(), bounds) ?: path(IconShape.HYPEROS, bounds)
         IconShape.HYPEROS -> Path().apply { addRoundRect(bounds, 58f, 58f, Path.Direction.CW) }
         IconShape.CIRCLE -> Path().apply { addOval(bounds, Path.Direction.CW) }
         IconShape.SQUIRCLE -> squircle(bounds)
@@ -63,7 +63,7 @@ object IconShapePathFactory {
         val sx = bounds.width() / 100f; val sy = bounds.height() / 100f
         return Path().apply {
             moveTo(bounds.left + 50f * sx, bounds.top)
-            arcTo(RectF(bounds.left, bounds.top, bounds.left + 100f * sx, bounds.top + 100f * sy), -90f, 180f, false)
+            arcTo(RectF(bounds.left, bounds.top, bounds.left + 100f * sx, bounds.top + 100f * sy), -90f, 90f, false)
             lineTo(bounds.right, bounds.top + 85f * sy)
             arcTo(RectF(bounds.right - 30f * sx, bounds.bottom - 30f * sy, bounds.right, bounds.bottom), 0f, 90f, false)
             lineTo(bounds.left + 50f * sx, bounds.bottom)

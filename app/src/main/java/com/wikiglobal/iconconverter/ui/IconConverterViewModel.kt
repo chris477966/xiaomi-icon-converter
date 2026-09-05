@@ -17,6 +17,8 @@ import com.wikiglobal.iconconverter.hyperos.ThemeOwnershipState
 import com.wikiglobal.iconconverter.hyperos.HyperOsThemeProfile
 import com.wikiglobal.iconconverter.hyperos.HyperOsThemeProfileDetector
 import com.wikiglobal.iconconverter.hyperos.HyperOsThemeEntryResolver
+import com.wikiglobal.iconconverter.hyperos.HyperOsThemeReplacementPlanner
+import com.wikiglobal.iconconverter.hyperos.RenderedThemeActivityIcon
 import com.wikiglobal.iconconverter.hyperos.IconPackStyle
 import com.wikiglobal.iconconverter.hyperos.IconPackStyleStore
 import com.wikiglobal.iconconverter.hyperos.MonetGlyphRenderer
@@ -84,7 +86,7 @@ data class MaterialSourceDiagnostic(
     val lawniconsProviderStatus: LawniconsProviderStatus, val lawniconsMapped: Boolean, val lawniconsDrawableId: Int,
     val aospAdaptiveAvailable: Boolean, val aospCandidateSource: String?, val finalSource: MonetGlyphSource
 )
-data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0, val previewBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(), val paletteResolution: MaterialPaletteResolution? = null) {
+data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? = null, val dark: Boolean = false, val sources: Map<String, MonetGlyphSource> = emptyMap(), val generated: Map<String, ByteArray> = emptyMap(), val availability: Map<String, MaterialSourceAvailability> = emptyMap(), val overrides: Map<String, MaterialSourceOverride> = emptyMap(), val diagnostics: Map<String, MaterialSourceDiagnostic> = emptyMap(), val lawniconsProvider: LawniconsProviderState = LawniconsProviderState(), val style: MaterialStyle = MaterialStyle(), val timestamp: Long = 0, val previewBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(), val paletteResolution: MaterialPaletteResolution? = null, val previewTargetSize: Int = HyperOsThemeProfileDetector.FALLBACK_SIZE) {
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
@@ -153,7 +155,13 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 Triple(true, backupManager.ownershipState(), profile)
             }
         }
-        _uiState.value = _uiState.value.copy(rootAvailable = result.first, themeOwnership = result.second, themeProfile = result.third, themeBaseSha = backupManager.currentSession()?.original?.sha256, message = if (result.first) "Root 可用" else "Root 不可用")
+        val current = _uiState.value
+        // A failed refresh must not discard an already confirmed target profile and
+        // silently return its canonical previews to the 250px fallback.
+        val resolvedProfile = result.third ?: current.themeProfile
+        val targetSize = resolvedProfile?.staticIconSize ?: HyperOsThemeProfileDetector.FALLBACK_SIZE
+        val rerendered = withContext(Dispatchers.Default) { rerenderCachedMaterial(current.monet, targetSize) }
+        _uiState.value = current.copy(rootAvailable = result.first, themeOwnership = result.second, themeProfile = resolvedProfile, themeBaseSha = backupManager.currentSession()?.original?.sha256, monet = rerendered, message = if (result.first) "Root 可用" else "Root 不可用")
     }
 
     fun selectThemeMode(mode: ThemeMode) {
@@ -169,7 +177,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val diagnostic: MaterialSourceDiagnostic
     )
 
-    /** Previews exactly the 250px PNGs that Material You Apply will patch into the current base archive. */
+    /** Previews canonical PNGs at the known baseline target size, with a transparent 250 fallback before Root inspection. */
     fun generateMonetPreview() = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(loading = true, message = null)
         runCatching { withContext(Dispatchers.Default) {
@@ -177,6 +185,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val resolution = paletteResolver.resolve(style) ?: error("当前系统/壁纸 Monet 调色板不可用")
             val palette = resolution.palette
             val dark = (getApplication<Application>().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val targetSize = _uiState.value.themeProfile?.staticIconSize ?: HyperOsThemeProfileDetector.FALLBACK_SIZE
             val sources = linkedMapOf<String, MonetGlyphSource>()
             val pngs = linkedMapOf<String, ByteArray>()
             val availability = linkedMapOf<String, MaterialSourceAvailability>()
@@ -191,13 +200,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 diagnostics[resolved.key] = resolved.diagnostic
                 materialGlyphCache[resolved.key] = resolved.glyph
                 glyphDiskCache.save(resolved.key, resolved.glyph)
-                MaterialStyledGlyphRenderer.render(resolved.glyph, palette, dark, style.shape)?.let { pngs[resolved.key] = it }
+                MaterialStyledGlyphRenderer.render(resolved.glyph, palette, dark, style.shape, targetSize)?.let { pngs[resolved.key] = it }
             }
             MonetUiState(
                 System.nanoTime(), palette, dark, sources, pngs, availability, overrides,
                 diagnostics, providerState, style, System.currentTimeMillis(),
-                PreviewBitmapPipeline.decodeMaterialPngs(pngs),
-                resolution
+                PreviewBitmapPipeline.decodeMaterialPngs(pngs, targetSize),
+                resolution,
+                targetSize
             )
         } }.onSuccess { monet -> _uiState.value = _uiState.value.copy(loading = false, themeMode = ThemeMode.MATERIAL_YOU, monet = monet, message = "已生成 ${monet.generated.size} 个 Material You 预览") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "Material You 预览失败") }
@@ -223,10 +233,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val generated = monet.generated.toMutableMap().apply {
                 materialGlyphCache[componentKey] = resolved.glyph
                 glyphDiskCache.save(componentKey, resolved.glyph)
-                MaterialStyledGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark, monet.style.shape)?.let { put(componentKey, it) } ?: remove(componentKey)
+                MaterialStyledGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark, monet.style.shape, monet.previewTargetSize)?.let { put(componentKey, it) } ?: remove(componentKey)
             }
             val previews = monet.previewBitmaps.toMutableMap().apply {
-                generated[componentKey]?.let { PreviewBitmapPipeline.decodeMaterialPng(it) }?.let { put(componentKey, it) } ?: remove(componentKey)
+                generated[componentKey]?.let { PreviewBitmapPipeline.decodeMaterialPng(it, monet.previewTargetSize) }?.let { put(componentKey, it) } ?: remove(componentKey)
             }
             monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, previewBitmaps = previews, availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
         } }.onSuccess { updated ->
@@ -284,8 +294,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         }
         val resolution = withContext(Dispatchers.Default) { paletteResolver.resolve(style) } ?: return@launch
         val palette = resolution.palette
-        val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape)?.let { key to it } }.toMap() }
-        val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
+        val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape, current.previewTargetSize)?.let { key to it } }.toMap() }
+        val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered, current.previewTargetSize) }
         _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, previewBitmaps = previews, paletteResolution = resolution, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
     }
 
@@ -329,11 +339,11 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             }
             val rendered = withContext(Dispatchers.Default) {
                 materialGlyphCache.mapNotNull { (key, glyph) ->
-                    MaterialStyledGlyphRenderer.render(glyph, newPalette, current.dark, current.style.shape)
+                    MaterialStyledGlyphRenderer.render(glyph, newPalette, current.dark, current.style.shape, current.previewTargetSize)
                         ?.let { key to it }
                 }.toMap()
             }
-            val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered) }
+            val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered, current.previewTargetSize) }
             // Preserve source/override/availability/diagnostic maps verbatim. A palette
             // refresh is serialized rendering work only, never source discovery.
             _uiState.value = _uiState.value.copy(monet = current.copy(
@@ -347,6 +357,16 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /** Re-renders only already-resolved glyph masks. Provider and source discovery are deliberately not invoked. */
+    private fun rerenderCachedMaterial(current: MonetUiState, targetSize: Int): MonetUiState {
+        if (!current.available || current.previewTargetSize == targetSize || materialGlyphCache.isEmpty()) return current
+        val rendered = materialGlyphCache.mapNotNull { (key, glyph) ->
+            MaterialStyledGlyphRenderer.render(glyph, current.palette!!, current.dark, current.style.shape, targetSize)?.let { key to it }
+        }.toMap()
+        val previews = PreviewBitmapPipeline.decodeMaterialPngs(rendered, targetSize)
+        return current.copy(generationId = System.nanoTime(), generated = rendered, previewBitmaps = previews, previewTargetSize = targetSize, timestamp = System.currentTimeMillis())
+    }
+
     fun applyMonetToSystem() = viewModelScope.launch {
         val state = _uiState.value
         _uiState.value = state.copy(themeOperationRunning = true, message = null)
@@ -357,11 +377,13 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val session = backupManager.ensureOriginalBackup("UNKNOWN", "UNKNOWN").getOrThrow()
             val base = session.backup
             val profile = HyperOsThemeProfileDetector.detect(base)
-            val replacements = themedReplacements(base, state.matches.mapNotNull { match ->
-                val key = componentKey(match)
-                val glyph = materialGlyphCache[key] ?: glyphDiskCache.load().firstOrNull { it.key == key }?.let { cached -> glyphDiskCache.mask(cached)?.let { MonetGlyphResult(it, cached.source, null) } }
-                glyph?.let { MaterialStyledGlyphRenderer.render(it, monet.palette!!, monet.dark, monet.style.shape, profile.staticIconSize) }?.let { match to it }
-            })
+            val canonicalMonet = rerenderCachedMaterial(monet, profile.staticIconSize)
+            check(canonicalMonet.previewTargetSize == profile.staticIconSize) { "无法将 Material 预览重渲染为当前主题尺寸" }
+            // Publish the rerender before patching so the visible preview and the
+            // bytes about to be installed are the same canonical PNGs.
+            _uiState.value = _uiState.value.copy(themeProfile = profile, monet = canonicalMonet)
+            // Apply consumes the exact current canonical preview bytes. It never independently renders a second output set.
+            val replacements = themedReplacements(base, state.matches.mapNotNull { match -> canonicalMonet.generated[componentKey(match)]?.let { match to it } })
             check(replacements.isNotEmpty()) { "没有可应用的 Material You 图标" }
             val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-monet-icons.zip")
             HyperOs3ThemePatcher.patch(base, patched, replacements, profile.staticIconSize)
@@ -494,18 +516,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "应用失败；当前主题未被覆盖") }
     }
 
-    /** Base entry is always produced; aliases are added only when the exact entry is in the baseline archive. */
+    /** Delegates exact alias matching to the archive-only planner; never wildcard-matches package names. */
     private fun themedReplacements(base: java.io.File, rendered: List<Pair<IconMatch, ByteArray>>): List<HyperOs3IconReplacement> = rendered
-        .groupBy { it.first.app.packageName }.flatMap { (pkg, values) ->
-            val output = linkedMapOf<String, HyperOs3IconReplacement>()
-            output[HyperOsThemeEntryResolver.baseEntry(pkg)] = HyperOs3IconReplacement(pkg, values.first().second, exactEntryName = HyperOsThemeEntryResolver.baseEntry(pkg))
-            if (values.map { HyperOs3ThemePatcher.sha256(it.second) }.distinct().size > 1) values.forEach { (match, png) ->
-                HyperOsThemeEntryResolver.entriesFor(base, pkg, match.app.launcherActivity)
-                    .filter { it != HyperOsThemeEntryResolver.baseEntry(pkg) }
-                    .forEach { exact -> output[exact] = HyperOs3IconReplacement(pkg, png, exactEntryName = exact) }
-            }
-            output.values
-        }
+        .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, png) }
+        .let { HyperOsThemeReplacementPlanner.plan(base, it) }
 
     fun restoreOriginalTheme() = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)

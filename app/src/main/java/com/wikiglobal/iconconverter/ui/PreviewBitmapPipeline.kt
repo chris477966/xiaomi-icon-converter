@@ -9,21 +9,20 @@ import com.wikiglobal.iconconverter.renderer.IconRenderer
  * Drawable rasterization happens before a Lazy item is composed.
  */
 object PreviewBitmapPipeline {
-    const val MATERIAL_PNG_SIZE = 250
     const val MATERIAL_PREVIEW_DP = 80
     const val ICON_PACK_PREVIEW_SIZE = 128
 
-    fun decodeMaterialPng(png: ByteArray): Bitmap? {
+    fun decodeMaterialPng(png: ByteArray, expectedSize: Int): Bitmap? {
         val options = BitmapFactory.Options().apply {
             inPreferredConfig = Bitmap.Config.ARGB_8888
             inScaled = false
         }
         return BitmapFactory.decodeByteArray(png, 0, png.size, options)
-            ?.takeIf { it.width == MATERIAL_PNG_SIZE && it.height == MATERIAL_PNG_SIZE }
+            ?.takeIf { it.width == expectedSize && it.height == expectedSize }
     }
 
-    fun decodeMaterialPngs(pngs: Map<String, ByteArray>): Map<String, Bitmap> =
-        pngs.mapNotNull { (key, png) -> decodeMaterialPng(png)?.let { key to it } }.toMap()
+    fun decodeMaterialPngs(pngs: Map<String, ByteArray>, expectedSize: Int): Map<String, Bitmap> =
+        pngs.mapNotNull { (key, png) -> decodeMaterialPng(png, expectedSize)?.let { key to it } }.toMap()
 
     fun rasterizeIcon(drawable: android.graphics.drawable.Drawable): Bitmap =
         IconRenderer.renderBitmap(drawable, ICON_PACK_PREVIEW_SIZE)

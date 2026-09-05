@@ -1,6 +1,6 @@
 package com.wikiglobal.iconconverter.ui
 
-import com.wikiglobal.iconconverter.hyperos.HyperOs3ThemePatcher
+import com.wikiglobal.iconconverter.hyperos.HyperOsThemeProfileDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -10,8 +10,8 @@ class PreviewBitmapPipelineTest {
         assertEquals(80, PreviewBitmapPipeline.MATERIAL_PREVIEW_DP)
     }
 
-    @Test fun `PREVIEW_BITMAP_SOURCE_250X250`() {
-        assertEquals(HyperOs3ThemePatcher.CANONICAL_SIZE, PreviewBitmapPipeline.MATERIAL_PNG_SIZE)
+    @Test fun `PREVIEW_BITMAP_SOURCE_uses_explicit_target_size`() {
+        assertEquals(250, HyperOsThemeProfileDetector.FALLBACK_SIZE)
     }
 
     @Test fun `stable component keys preserve activity identity`() {

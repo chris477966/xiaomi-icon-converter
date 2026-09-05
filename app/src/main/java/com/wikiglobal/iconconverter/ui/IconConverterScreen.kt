@@ -95,6 +95,7 @@ import com.wikiglobal.iconconverter.model.IconMatch
                     }
                     state.monet.palette?.let { palette -> val c=palette.colors(state.monet.dark); Text("● #${"%08X".format(c.first)}  ● #${"%08X".format(c.second)}",style=MaterialTheme.typography.labelSmall) }
                     Text("可生成 ${state.monet.generated.size} · 保留 ${state.monet.sources.size-state.monet.generated.size}")
+                    Text("Preview target：${state.monet.previewTargetSize}px${if (state.themeProfile == null) "（Root/Profile 未检测，fallback）" else ""}", style=MaterialTheme.typography.labelSmall)
                     Text("官方 ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Lawnicons ${state.monet.sources.values.count { it.name.startsWith("LAWNICONS") }} · 自动单色 ${state.monet.sourceCount(MonetGlyphSource.AOSP_FORCED_MONOCHROME)}",style=MaterialTheme.typography.labelSmall)
                     if (state.monet.paletteResolution?.fallbackUsed == true) Text("壁纸颜色暂不可用，当前使用系统配色",style=MaterialTheme.typography.labelSmall)
                     if (state.monet.lawniconsProvider.status != LawniconsProviderStatus.READY) Text("Lawnicons Provider：${lawniconsProviderLabel(state.monet.lawniconsProvider.status)}", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.error)
