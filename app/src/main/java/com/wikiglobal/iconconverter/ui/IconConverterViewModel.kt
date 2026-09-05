@@ -19,6 +19,9 @@ import com.wikiglobal.iconconverter.hyperos.HyperOsThemeProfileDetector
 import com.wikiglobal.iconconverter.hyperos.HyperOsThemeEntryResolver
 import com.wikiglobal.iconconverter.hyperos.HyperOsThemeReplacementPlanner
 import com.wikiglobal.iconconverter.hyperos.RenderedThemeActivityIcon
+import com.wikiglobal.iconconverter.hyperos.ThemeApplicationPlan
+import com.wikiglobal.iconconverter.hyperos.ThemeApplicationPlanVerifier
+import com.wikiglobal.iconconverter.hyperos.ThemeApplyCompletion
 import com.wikiglobal.iconconverter.hyperos.IconPackStyle
 import com.wikiglobal.iconconverter.hyperos.IconPackStyleStore
 import com.wikiglobal.iconconverter.hyperos.MonetGlyphRenderer
@@ -90,6 +93,9 @@ data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? =
     val available get() = palette != null
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
+enum class LauncherRefreshStatus { SUCCESS, FAILED }
+data class ThemeApplySummary(val mode: String, val generatedComponents: Int, val plannedComponents: Int, val packageBaseEntries: Int, val activityAliasEntries: Int, val totalReplacements: Int, val unroutedComponents: Int, val entryConflicts: Int, val patchVerified: Boolean, val archiveInstallVerified: Boolean, val launcherRefreshStatus: LauncherRefreshStatus)
+private data class AppliedThemeResult(val plan: ThemeApplicationPlan, val archiveSha: String, val refreshStatus: LauncherRefreshStatus)
 
 data class ConverterUiState(
     val loading: Boolean = true,
@@ -110,6 +116,7 @@ data class ConverterUiState(
     val themeBaseSha: String? = null,
     val rebaseConfirmationRequired: Boolean = false,
     val monet: MonetUiState = MonetUiState(),
+    val lastApplySummary: ThemeApplySummary? = null,
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -383,16 +390,19 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             // bytes about to be installed are the same canonical PNGs.
             _uiState.value = _uiState.value.copy(themeProfile = profile, monet = canonicalMonet)
             // Apply consumes the exact current canonical preview bytes. It never independently renders a second output set.
-            val replacements = themedReplacements(base, state.matches.mapNotNull { match -> canonicalMonet.generated[componentKey(match)]?.let { match to it } })
-            check(replacements.isNotEmpty()) { "没有可应用的 Material You 图标" }
+            val plan = themedReplacements(base, state.matches.mapNotNull { match -> canonicalMonet.generated[componentKey(match)]?.let { match to it } })
+            check(plan.entryConflicts.isEmpty()) { "ENTRY_CONFLICT: ${plan.entryConflicts.joinToString { it.entryName }}" }
+            check(plan.generatedComponentCount == plan.plannedComponentCount) { "UNROUTED_COMPONENT" }
+            check(plan.replacements.isNotEmpty()) { "没有可应用的 Material You 图标" }
             val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-monet-icons.zip")
-            HyperOs3ThemePatcher.patch(base, patched, replacements, profile.staticIconSize)
+            HyperOs3ThemePatcher.patch(base, patched, plan.replacements, profile.staticIconSize)
+            check(ThemeApplicationPlanVerifier.verify(patched, plan)) { "PATCH_PLAN_BYTES_VERIFICATION_FAILED" }
             val installedSession = backupManager.install(patched, "system-monet", "MATERIAL_YOU", monet.palette!!.hash()).getOrThrow()
-            replacements.size to installedSession.lastInstalledSha256.orEmpty()
-        } }.onSuccess { (count, archiveSha) ->
+            AppliedThemeResult(plan, installedSession.lastInstalledSha256.orEmpty(), if (ThemeApplyCompletion.softRefresh(rootExecutor)) LauncherRefreshStatus.SUCCESS else LauncherRefreshStatus.FAILED)
+        } }.onSuccess { applied ->
             val monet = _uiState.value.monet
-            installedMaterialStore.save(MaterialInstalledState(true, monet.style.colorMode, monet.palette!!.hash(), monet.style.customSeedColor, monet.style.shape, monet.dark, System.currentTimeMillis(), archiveSha, monet.style.followWallpaperMonet, AutoRecolorStatus.IDLE))
-            _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = "已原子应用 $count 个 Material You 图标")
+            installedMaterialStore.save(MaterialInstalledState(true, monet.style.colorMode, monet.palette!!.hash(), monet.style.customSeedColor, monet.style.shape, monet.dark, System.currentTimeMillis(), applied.archiveSha, monet.style.followWallpaperMonet, AutoRecolorStatus.IDLE))
+            _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("MATERIAL_YOU", applied), message = applyMessage(applied))
         }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "Material You 应用失败") }
     }
@@ -506,20 +516,26 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val rendered = state.matches.filter { it.drawableName != null && it.status != MatchStatus.CONFLICT }.mapNotNull { match ->
                 pack.drawableLoader(match.drawableName!!)?.let { drawable -> Triple(match, match.drawableName, AdaptiveIconPackRenderer.renderPng(drawable, state.iconPackStyle.shape, profile.staticIconSize)) }
             }
-            val replacements = themedReplacements(base, rendered.map { it.first to it.third })
-            check(replacements.isNotEmpty()) { "没有可应用的匹配图标" }
+            val plan = themedReplacements(base, rendered.map { it.first to it.third })
+            check(plan.entryConflicts.isEmpty()) { "ENTRY_CONFLICT: ${plan.entryConflicts.joinToString { it.entryName }}" }
+            check(plan.generatedComponentCount == plan.plannedComponentCount) { "UNROUTED_COMPONENT" }
+            check(plan.replacements.isNotEmpty()) { "没有可应用的匹配图标" }
             val patched = java.io.File(getApplication<Application>().filesDir, "staging/patched-icons.zip")
-            HyperOs3ThemePatcher.patch(base, patched, replacements, profile.staticIconSize)
-            backupManager.install(patched, pack.packageName, "ICON_PACK", null).getOrThrow()
-            replacements.size
-        } }.onSuccess { count -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = "已原子应用 $count 个图标；可选择刷新桌面") }
+            HyperOs3ThemePatcher.patch(base, patched, plan.replacements, profile.staticIconSize)
+            check(ThemeApplicationPlanVerifier.verify(patched, plan)) { "PATCH_PLAN_BYTES_VERIFICATION_FAILED" }
+            val installed = backupManager.install(patched, pack.packageName, "ICON_PACK", null).getOrThrow()
+            AppliedThemeResult(plan, installed.lastInstalledSha256.orEmpty(), if (ThemeApplyCompletion.softRefresh(rootExecutor)) LauncherRefreshStatus.SUCCESS else LauncherRefreshStatus.FAILED)
+        } }.onSuccess { applied -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("ICON_PACK", applied), message = applyMessage(applied)) }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "应用失败；当前主题未被覆盖") }
     }
 
     /** Delegates exact alias matching to the archive-only planner; never wildcard-matches package names. */
-    private fun themedReplacements(base: java.io.File, rendered: List<Pair<IconMatch, ByteArray>>): List<HyperOs3IconReplacement> = rendered
-        .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, png) }
+    private fun themedReplacements(base: java.io.File, rendered: List<Pair<IconMatch, ByteArray>>): ThemeApplicationPlan = rendered
+        .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, match.app.activityAliases, png) }
         .let { HyperOsThemeReplacementPlanner.plan(base, it) }
+
+    private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)
+    private fun applyMessage(applied: AppliedThemeResult): String = "已应用 ${applied.plan.plannedComponentCount} 个应用 · 更新 ${applied.plan.totalReplacementCount} 个主题条目" + if (applied.refreshStatus == LauncherRefreshStatus.SUCCESS) "" else "；桌面刷新请求失败，可在工具页重试"
 
     fun restoreOriginalTheme() = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)

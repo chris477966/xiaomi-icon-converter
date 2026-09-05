@@ -41,7 +41,11 @@ class InstalledAppsRepository(private val context: Context) {
             packageManager.queryIntentActivities(intent, 0)
         }
 
-    private fun normalize(pkg: String, activity: String) = if (activity.startsWith('.')) pkg + activity else activity
+    private fun normalize(pkg: String, activity: String) = when {
+        activity.startsWith('.') -> pkg + activity
+        activity.startsWith("$pkg.") || activity == pkg -> activity
+        else -> "$pkg.$activity"
+    }
 
     companion object {
         /** Kept public and pure so duplicates and multi-activity behavior can be tested without PackageManager. */
