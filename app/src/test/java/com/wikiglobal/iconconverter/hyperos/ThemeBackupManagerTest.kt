@@ -6,6 +6,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class ThemeBackupManagerTest {
     @Test fun `ownership state is explicit and confirmed rebase copies current without writing active theme`() {
@@ -53,15 +55,51 @@ class ThemeBackupManagerTest {
         val fresh = ThemeBackupManager(dir, fake, store).ensureOriginalBackup("OS", "Launcher").getOrThrow()
         assertTrue(fresh.backup.parentFile != initial.backup.parentFile)
     }
+    @Test fun `CONTEXT_MISMATCH_TRIGGERS_ROLLBACK`() {
+        val dir = Files.createTempDirectory("theme-context-rollback").toFile()
+        val source = archive(File(dir, "source.zip"), "base")
+        val patched = archive(File(dir, "patched.zip"), "patched")
+        val fake = FakeRoot(source).apply { mutateNextInstall = { it.copy(selinuxContext = "u:object_r:wrong_theme:s0") } }
+        val store = MemoryStore(); val manager = ThemeBackupManager(dir, fake, store)
+        val original = manager.ensureOriginalBackup("OS", "Launcher").getOrThrow()
+        val result = manager.install(patched, "pack", "MATERIAL", null)
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull()!!.message!!
+        assertTrue(error.contains("ROLLBACK_SUCCEEDED:")); assertTrue(error.contains("context=false"))
+        assertTrue(error.contains("expectedContext=${original.original.selinuxContext}")); assertTrue(error.contains("actualContext=u:object_r:wrong_theme:s0"))
+        assertEquals(2, fake.atomicWrites)
+    }
+    @Test fun `ROLLBACK_PRESERVES_ORIGINAL_METADATA`() {
+        val dir = Files.createTempDirectory("theme-metadata-rollback").toFile()
+        val source = archive(File(dir, "source.zip"), "base")
+        val patched = archive(File(dir, "patched.zip"), "patched")
+        val fake = FakeRoot(source).apply { mutateNextInstall = { it.copy(mode = "600") } }
+        val manager = ThemeBackupManager(dir, fake, MemoryStore())
+        val original = manager.ensureOriginalBackup("OS", "Launcher").getOrThrow()
+        assertTrue(manager.install(patched, "pack", "MATERIAL", null).isFailure)
+        assertEquals(original.original, fake.inspect(SuThemeRootExecutor.ACTIVE_ICONS))
+    }
+    private fun archive(file: File, marker: String): File = ZipOutputStream(file.outputStream()).use { out ->
+        out.putNextEntry(ZipEntry("transform_config.xml")); out.write(marker.toByteArray()); out.closeEntry()
+        file
+    }
     private class MemoryStore : ThemeSessionStore { var value: ThemeSession? = null; override fun load() = value; override fun save(session: ThemeSession) { value = session }; override fun clear() { value = null } }
     private class FakeRoot(private val source: File) : ThemeRootExecutor {
         var currentSha = HyperOs3ThemePatcher.sha256(source); var atomicWrites = 0
-        fun metadata() = ThemeFileMetadata(currentSha, source.length(), 6101,6101,"755","u:object_r:theme_data_file:s0")
+        var currentMetadata = ThemeFileMetadata(currentSha, source.length(), 6101,6101,"755","u:object_r:theme_data_file:s0")
+        var mutateNextInstall: ((ThemeFileMetadata) -> ThemeFileMetadata)? = null
+        fun metadata() = currentMetadata.copy(sha256 = currentSha)
         override fun isRootAvailable() = true
         override fun inspect(path: String) = metadata().copy(sha256 = currentSha)
-        fun replace(bytes: ByteArray) { source.writeBytes(bytes); currentSha = HyperOs3ThemePatcher.sha256(source) }
+        fun replace(bytes: ByteArray) { source.writeBytes(bytes); currentSha = HyperOs3ThemePatcher.sha256(source); currentMetadata = currentMetadata.copy(sha256 = currentSha, size = source.length()) }
         override fun copySystemFileTo(source: String, destination: File) = runCatching { destination.parentFile?.mkdirs(); this.source.copyTo(destination, overwrite = true); RootOperation(true) }.getOrElse { RootOperation(false) }
-        override fun atomicInstall(localArchive: File, target: String, original: ThemeFileMetadata): RootOperation { atomicWrites++; currentSha = HyperOs3ThemePatcher.sha256(localArchive); return RootOperation(true) }
+        override fun atomicInstall(localArchive: File, target: String, original: ThemeFileMetadata): RootOperation {
+            atomicWrites++
+            currentSha = HyperOs3ThemePatcher.sha256(localArchive)
+            val installed = original.copy(sha256 = currentSha, size = localArchive.length())
+            currentMetadata = mutateNextInstall?.let { mutation -> mutateNextInstall = null; mutation(installed) } ?: installed
+            return RootOperation(true)
+        }
         override fun refreshIconCache() = RootOperation(true)
         override fun forceStopLauncher() = RootOperation(true)
     }
