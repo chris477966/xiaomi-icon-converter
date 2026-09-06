@@ -94,13 +94,15 @@ data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? =
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
 enum class LauncherRefreshStatus { SUCCESS, FAILED }
-data class ThemeApplySummary(val mode: String, val generatedComponents: Int, val plannedComponents: Int, val existingActivityRouteComponents: Int, val packageOnlyComponents: Int, val existingActivityEntriesMatched: Int, val packageBaseEntries: Int, val activityAliasEntries: Int, val totalReplacements: Int, val unroutedComponents: Int, val entryConflicts: Int, val patchVerified: Boolean, val archiveInstallVerified: Boolean, val launcherRefreshStatus: LauncherRefreshStatus)
+data class ThemeApplySummary(val mode: String, val generatedComponents: Int, val plannedComponents: Int, val existingActivityRouteComponents: Int, val packageOnlyComponents: Int, val existingActivityEntriesMatched: Int, val legacyAliasComponents: Int, val packageBaseEntries: Int, val activityAliasEntries: Int, val totalReplacements: Int, val unroutedComponents: Int, val entryConflicts: Int, val patchVerified: Boolean, val archiveInstallVerified: Boolean, val launcherRefreshStatus: LauncherRefreshStatus)
 data class ThemeRouteDiagnostic(
     val packageName: String,
     val launcherActivity: String,
     val targetActivity: String?,
     val directMatchedEntries: List<String>,
     val targetFallbackMatchedEntries: List<String>,
+    val legacyThemeAliasEntries: List<String>,
+    val legacyAliasStatus: String,
     val finalReplacementEntries: List<String>
 )
 private data class AppliedThemeResult(val plan: ThemeApplicationPlan, val archiveSha: String, val refreshStatus: LauncherRefreshStatus)
@@ -543,7 +545,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, match.app.activityAliases, match.app.targetActivity, png) }
         .let { HyperOsThemeReplacementPlanner.plan(base, it) }
 
-    private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.existingActivityRouteComponents, applied.plan.packageOnlyComponents, applied.plan.existingActivityEntriesMatched, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)
+    private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.existingActivityRouteComponents, applied.plan.packageOnlyComponents, applied.plan.existingActivityEntriesMatched, applied.plan.legacyAliasComponents, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)
     private fun routeDiagnostics(applied: AppliedThemeResult): List<ThemeRouteDiagnostic> = applied.plan.components.map { route ->
         ThemeRouteDiagnostic(
             packageName = route.packageName,
@@ -551,6 +553,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             targetActivity = route.targetActivity,
             directMatchedEntries = route.directMatchedEntries,
             targetFallbackMatchedEntries = route.targetFallbackMatchedEntries,
+            legacyThemeAliasEntries = route.legacyThemeAliasEntries,
+            legacyAliasStatus = route.legacyAliasStatus.name,
             finalReplacementEntries = route.finalReplacementEntries
         )
     }

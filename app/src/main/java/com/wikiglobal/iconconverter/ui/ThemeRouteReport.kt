@@ -14,6 +14,8 @@ object ThemeRouteReport {
             appendLine("TARGET_ACTIVITY=${route.targetActivity ?: "NONE"}")
             appendLine("DIRECT_MATCHED_ENTRIES=${route.directMatchedEntries.joinToString(",")}")
             appendLine("TARGET_FALLBACK_MATCHED_ENTRIES=${route.targetFallbackMatchedEntries.joinToString(",")}")
+            appendLine("LEGACY_THEME_ALIAS_ENTRIES=${route.legacyThemeAliasEntries.joinToString(",")}")
+            appendLine("LEGACY_ALIAS_STATUS=${route.legacyAliasStatus}")
             appendLine("FINAL_REPLACEMENT_ENTRIES=${route.finalReplacementEntries.joinToString(",")}")
         }
     }

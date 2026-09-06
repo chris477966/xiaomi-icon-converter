@@ -23,6 +23,7 @@ data class ThemeApplicationPlan(
     val generatedComponentCount get() = components.size + unroutedComponents.size
     val plannedComponentCount get() = components.size
     val existingActivityRouteComponents get() = components.count { it.matchedActivityEntries.isNotEmpty() }
+    val legacyAliasComponents get() = components.count { it.legacyAliasStatus == LegacyAliasStatus.UNIQUE }
     val packageOnlyComponents get() = generatedComponentCount - existingActivityRouteComponents
     val existingActivityEntriesMatched get() = components.sumOf { it.matchedActivityEntries.size }
     val packageBaseReplacementCount get() = replacements.count { it.entryName.substringAfterLast('/').substringBeforeLast('.') == it.packageName }
@@ -50,6 +51,12 @@ object HyperOsThemeReplacementPlanner {
             // An existing direct claim wins; only competing target fallbacks remain conflicts.
             val directOwner=routes.any { (_,candidate)->entry in candidate.directMatchedEntries }
             if(!directOwner) claim(entry,icon,true)
+        } }
+        // A unique legacy archive alias is last-resort data-driven compatibility only.
+        // It never competes with an exact direct or target route already established above.
+        routes.forEach { (icon,route) -> route.legacyThemeAliasEntries.forEach { entry ->
+            val higherOwner=routes.any { (_,candidate) -> entry in candidate.directMatchedEntries || entry in candidate.targetFallbackMatchedEntries }
+            if(!higherOwner) claim(entry,icon,true)
         } }
         return ThemeApplicationPlan(
             replacements = selected.map { (entry, value) -> HyperOs3IconReplacement(value.first.packageName, value.second, exactEntryName = entry) },

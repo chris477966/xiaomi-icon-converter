@@ -90,6 +90,38 @@ class HyperOsThemeReplacementPlannerTest {
     @Test fun `TARGET_TARGET_DIFFERENT_BYTES_CONFLICT`() { val d=Files.createTempDirectory("tt").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Target.png" to png(1)));assertTrue(HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.A",emptySet(),"pkg.Target",png(2)),RenderedThemeActivityIcon("pkg","pkg.B",emptySet(),"pkg.Target",png(3)))).entryConflicts.isNotEmpty()) }
     @Test fun `MODE_SWITCH_MATERIAL_TO_ICON_PACK_PLAN`() { val d=Files.createTempDirectory("m2i").toFile();val b=File(d,"base");zip(b,emptyMap());assertEquals(1,HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Main",emptySet(),png(1)))).plannedComponentCount) }
     @Test fun `MODE_SWITCH_ICON_PACK_TO_MATERIAL_PLAN`() { val d=Files.createTempDirectory("i2m").toFile();val b=File(d,"base");zip(b,emptyMap());assertEquals(1,HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Main",emptySet(),png(2)))).plannedComponentCount) }
+    @Test fun `GALLERY_UNIQUE_LEGACY_ALIAS_APPLIED`() {
+        val d=Files.createTempDirectory("gallery-legacy").toFile();val b=File(d,"base");val p=File(d,"patched")
+        zip(b,mapOf("res/drawable-xxhdpi/com.miui.gallery.png" to png(1),"res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png" to png(2)))
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("com.miui.gallery","com.miui.gallery.MainActivity",emptySet(),null,png(9))))
+        val route=plan.components.single();assertTrue(route.directMatchedEntries.isEmpty());assertTrue(route.targetFallbackMatchedEntries.isEmpty());assertEquals(LegacyAliasStatus.UNIQUE,route.legacyAliasStatus)
+        HyperOs3ThemePatcher.patch(b,p,plan.replacements,250);ZipFile(p).use { z -> assertEntry(z,"res/drawable-xxhdpi/com.miui.gallery.png",png(9));assertEntry(z,"res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png",png(9)) }
+    }
+    @Test fun `DIRECT_ROUTE_DISALLOWS_LEGACY_HEURISTIC`() {
+        val d=Files.createTempDirectory("direct-no-legacy").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Current.png" to png(1),"res/drawable-xxhdpi/pkg.Legacy.png" to png(2)))
+        val route=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Current",emptySet(),null,png(9)))).components.single()
+        assertTrue(route.directMatchedEntries.isNotEmpty());assertTrue(route.legacyThemeAliasEntries.isEmpty());assertEquals(LegacyAliasStatus.NONE,route.legacyAliasStatus)
+    }
+    @Test fun `TARGET_ROUTE_DISALLOWS_LEGACY_HEURISTIC`() {
+        val d=Files.createTempDirectory("target-no-legacy").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Target.png" to png(1),"res/drawable-xxhdpi/pkg.Legacy.png" to png(2)))
+        val route=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Current",emptySet(),"pkg.Target",png(9)))).components.single()
+        assertTrue(route.directMatchedEntries.isEmpty());assertTrue(route.targetFallbackMatchedEntries.isNotEmpty());assertTrue(route.legacyThemeAliasEntries.isEmpty())
+    }
+    @Test fun `MULTIPLE_LEGACY_ALIASES_NOT_GUESSED`() {
+        val d=Files.createTempDirectory("ambiguous-legacy").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.png" to png(1),"res/drawable-xxhdpi/pkg.MainActivity.png" to png(2),"res/drawable-xxhdpi/pkg.SettingsActivity.png" to png(3)))
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.NewMainActivity",emptySet(),null,png(9))));val route=plan.components.single()
+        assertEquals(LegacyAliasStatus.AMBIGUOUS,route.legacyAliasStatus);assertTrue(route.legacyThemeAliasEntries.isEmpty());assertEquals(listOf("res/drawable-xxhdpi/pkg.png"),plan.replacements.map{it.entryName})
+    }
+    @Test fun `ZERO_LEGACY_ALIAS_PACKAGE_ONLY`() {
+        val d=Files.createTempDirectory("zero-legacy").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.png" to png(1)))
+        val route=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.New",emptySet(),null,png(9)))).components.single()
+        assertEquals(LegacyAliasStatus.NONE,route.legacyAliasStatus);assertEquals(listOf("res/drawable-xxhdpi/pkg.png"),route.finalReplacementEntries)
+    }
+    @Test fun `LEGACY_ALIAS_CANNOT_OVERRIDE_DIRECT_OWNER`() {
+        val d=Files.createTempDirectory("legacy-owner").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Legacy.png" to png(1)))
+        val direct=png(7);val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Legacy",emptySet(),null,direct),RenderedThemeActivityIcon("pkg","pkg.New",emptySet(),null,png(8))))
+        assertTrue(plan.entryConflicts.isEmpty());assertTrue(plan.replacements.first{it.entryName.endsWith("pkg.Legacy.png")}.png.contentEquals(direct))
+    }
     private fun assertEntry(zip: ZipFile, name: String, expected: ByteArray) = assertTrue(zip.getInputStream(zip.getEntry(name)).readBytes().contentEquals(expected))
     private fun zip(file: File, contents: Map<String, ByteArray>) = ZipOutputStream(file.outputStream()).use { out -> contents.forEach { (name, bytes) -> out.putNextEntry(ZipEntry(name)); out.write(bytes); out.closeEntry() } }
     private fun png(marker:Int)=ByteArray(48).also { b -> byteArrayOf(-119,80,78,71,13,10,26,10).copyInto(b);b[12]=73;b[13]=72;b[14]=68;b[15]=82;b[17]=0;b[18]=0;b[19]=-6;b[21]=0;b[22]=0;b[23]=-6;b[24]=8;b[25]=6;b[47]=marker.toByte() }
