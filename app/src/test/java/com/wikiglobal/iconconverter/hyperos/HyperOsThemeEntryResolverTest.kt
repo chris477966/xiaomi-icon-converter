@@ -13,7 +13,7 @@ class HyperOsThemeEntryResolverTest {
         ZipOutputStream(archive.outputStream()).use { out -> listOf("pkg.png", "pkg.MainActivity.png", "pkg#SecondActivity.png", "pkg.other.png").forEach { name -> out.putNextEntry(ZipEntry("res/drawable-xxhdpi/$name")); out.write(byteArrayOf(1)); out.closeEntry() } }
         val index = HyperOsThemeArchiveIndex.from(archive)
         assertEquals(setOf("res/drawable-xxhdpi/pkg.png", "res/drawable-xxhdpi/pkg.MainActivity.png"), HyperOsThemeEntryResolver.resolve(index, LauncherComponentIdentity.from("pkg", "pkg.MainActivity", emptySet())).replacementEntries.toSet())
-        assertEquals(setOf("res/drawable-xxhdpi/pkg.png", "res/drawable-xxhdpi/pkg#SecondActivity.png"), HyperOsThemeEntryResolver.resolve(index, LauncherComponentIdentity.from("pkg", "pkg.SecondActivity", emptySet())).replacementEntries.toSet())
+        assertEquals(setOf("res/drawable-xxhdpi/pkg.png", "res/drawable-xxhdpi/pkg.SecondActivity.png", "res/drawable-xxhdpi/pkg#SecondActivity.png"), HyperOsThemeEntryResolver.resolve(index, LauncherComponentIdentity.from("pkg", "pkg.SecondActivity", emptySet())).replacementEntries.toSet())
     }
     @Test fun `DOT_RELATIVE_ACTIVITY`() { assertEquals("pkg.ui.LauncherUI", normalizeActivityClassName("pkg", ".ui.LauncherUI")) }
     @Test fun `SIMPLE_ACTIVITY`() { assertEquals("pkg.MainActivity", normalizeActivityClassName("pkg", "MainActivity")) }

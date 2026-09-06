@@ -11,6 +11,8 @@ class ThemeRouteReportTest {
         packageName = "com.miui.gallery",
         launcherActivity = "com.miui.gallery.activity.HomePageActivity",
         targetActivity = "com.miui.gallery.activity.TargetActivity",
+        currentActivityEntry = "res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png",
+        currentActivityEntryExisted = true,
         directMatchedEntries = listOf("res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png"),
         targetFallbackMatchedEntries = listOf("res/drawable-xxhdpi/com.miui.gallery.activity.TargetActivity.png"),
         legacyThemeAliasEntries = listOf("res/drawable-xxhdpi/com.miui.gallery.activity.LegacyHome.png"),
@@ -33,6 +35,12 @@ class ThemeRouteReportTest {
         val report = ThemeRouteReport.format(summary, listOf(route))
         assertTrue(report.contains("LEGACY_THEME_ALIAS_ENTRIES=res/drawable-xxhdpi/com.miui.gallery.activity.LegacyHome.png"))
         assertTrue(report.contains("LEGACY_ALIAS_STATUS=UNIQUE"))
+    }
+
+    @Test fun CURRENT_ACTIVITY_DIAGNOSTIC_EXPORTED() {
+        val report = ThemeRouteReport.format(summary, listOf(route))
+        assertTrue(report.contains("CURRENT_ACTIVITY_ENTRY=res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png"))
+        assertTrue(report.contains("CURRENT_ACTIVITY_ENTRY_EXISTED=true"))
     }
 
     @Test fun ROUTE_REPORT_NO_PNG_BYTES() {

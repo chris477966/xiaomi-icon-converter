@@ -12,6 +12,8 @@ object ThemeRouteReport {
             appendLine("PACKAGE=${route.packageName}")
             appendLine("LAUNCHER_ACTIVITY=${route.launcherActivity}")
             appendLine("TARGET_ACTIVITY=${route.targetActivity ?: "NONE"}")
+            appendLine("CURRENT_ACTIVITY_ENTRY=${route.currentActivityEntry}")
+            appendLine("CURRENT_ACTIVITY_ENTRY_EXISTED=${route.currentActivityEntryExisted}")
             appendLine("DIRECT_MATCHED_ENTRIES=${route.directMatchedEntries.joinToString(",")}")
             appendLine("TARGET_FALLBACK_MATCHED_ENTRIES=${route.targetFallbackMatchedEntries.joinToString(",")}")
             appendLine("LEGACY_THEME_ALIAS_ENTRIES=${route.legacyThemeAliasEntries.joinToString(",")}")

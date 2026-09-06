@@ -45,17 +45,25 @@ object HyperOsThemeReplacementPlanner {
             else if(!previous.second.contentEquals(icon.png) && allowDirectOwner) conflicts+=ThemeEntryConflict(entry,previous.first.packageName,previous.first.identity.launcherActivity,icon.packageName,icon.identity.launcherActivity)
         }
         routes.forEach { (icon,route) -> if(baseOwners.add(route.packageEntry)) selected[route.packageEntry]=icon to icon.png }
+        // The current PackageManager launcher component is authoritative even when
+        // this archive has never had an entry for it.
+        routes.forEach { (icon,route) -> claim(route.currentActivityEntry,icon,true) }
         // Direct entries establish ownership before any target fallback may claim them.
-        routes.forEach { (icon,route) -> route.directMatchedEntries.forEach { claim(it,icon,true) } }
+        routes.forEach { (icon,route) -> route.directMatchedEntries.forEach { entry ->
+            // A different component's authoritative current entry outranks this
+            // archive-only direct compatibility route.
+            val currentOwner=routes.any { (owner,candidate) -> owner !== icon && entry==candidate.currentActivityEntry }
+            if(!currentOwner) claim(entry,icon,true)
+        } }
         routes.forEach { (icon,route) -> route.targetFallbackMatchedEntries.forEach { entry ->
             // An existing direct claim wins; only competing target fallbacks remain conflicts.
-            val directOwner=routes.any { (_,candidate)->entry in candidate.directMatchedEntries }
+            val directOwner=routes.any { (_,candidate)->entry==candidate.currentActivityEntry || entry in candidate.directMatchedEntries }
             if(!directOwner) claim(entry,icon,true)
         } }
         // A unique legacy archive alias is last-resort data-driven compatibility only.
         // It never competes with an exact direct or target route already established above.
         routes.forEach { (icon,route) -> route.legacyThemeAliasEntries.forEach { entry ->
-            val higherOwner=routes.any { (_,candidate) -> entry in candidate.directMatchedEntries || entry in candidate.targetFallbackMatchedEntries }
+            val higherOwner=routes.any { (_,candidate) -> entry==candidate.currentActivityEntry || entry in candidate.directMatchedEntries || entry in candidate.targetFallbackMatchedEntries }
             if(!higherOwner) claim(entry,icon,true)
         } }
         return ThemeApplicationPlan(

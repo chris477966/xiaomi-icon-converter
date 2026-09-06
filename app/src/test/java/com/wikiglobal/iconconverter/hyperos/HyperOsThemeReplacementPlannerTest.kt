@@ -110,17 +110,65 @@ class HyperOsThemeReplacementPlannerTest {
     @Test fun `MULTIPLE_LEGACY_ALIASES_NOT_GUESSED`() {
         val d=Files.createTempDirectory("ambiguous-legacy").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.png" to png(1),"res/drawable-xxhdpi/pkg.MainActivity.png" to png(2),"res/drawable-xxhdpi/pkg.SettingsActivity.png" to png(3)))
         val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.NewMainActivity",emptySet(),null,png(9))));val route=plan.components.single()
-        assertEquals(LegacyAliasStatus.AMBIGUOUS,route.legacyAliasStatus);assertTrue(route.legacyThemeAliasEntries.isEmpty());assertEquals(listOf("res/drawable-xxhdpi/pkg.png"),plan.replacements.map{it.entryName})
+        assertEquals(LegacyAliasStatus.AMBIGUOUS,route.legacyAliasStatus);assertTrue(route.legacyThemeAliasEntries.isEmpty());assertEquals(setOf("res/drawable-xxhdpi/pkg.png","res/drawable-xxhdpi/pkg.NewMainActivity.png"),plan.replacements.map{it.entryName}.toSet())
     }
     @Test fun `ZERO_LEGACY_ALIAS_PACKAGE_ONLY`() {
         val d=Files.createTempDirectory("zero-legacy").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.png" to png(1)))
         val route=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.New",emptySet(),null,png(9)))).components.single()
-        assertEquals(LegacyAliasStatus.NONE,route.legacyAliasStatus);assertEquals(listOf("res/drawable-xxhdpi/pkg.png"),route.finalReplacementEntries)
+        assertEquals(LegacyAliasStatus.NONE,route.legacyAliasStatus);assertEquals(setOf("res/drawable-xxhdpi/pkg.png","res/drawable-xxhdpi/pkg.New.png"),route.finalReplacementEntries.toSet())
     }
     @Test fun `LEGACY_ALIAS_CANNOT_OVERRIDE_DIRECT_OWNER`() {
         val d=Files.createTempDirectory("legacy-owner").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Legacy.png" to png(1)))
         val direct=png(7);val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Legacy",emptySet(),null,direct),RenderedThemeActivityIcon("pkg","pkg.New",emptySet(),null,png(8))))
         assertTrue(plan.entryConflicts.isEmpty());assertTrue(plan.replacements.first{it.entryName.endsWith("pkg.Legacy.png")}.png.contentEquals(direct))
+    }
+    @Test fun `CURRENT_ACTIVITY_CREATED_WHEN_BASELINE_ABSENT`() {
+        val d=Files.createTempDirectory("current-create").toFile();val b=File(d,"base");zip(b,emptyMap())
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.MainActivity",emptySet(),null,png(9))));val route=plan.components.single()
+        assertEquals("res/drawable-xxhdpi/pkg.MainActivity.png",route.currentActivityEntry);assertTrue(!route.currentActivityEntryExisted);assertTrue(plan.replacements.any{it.entryName==route.currentActivityEntry})
+    }
+    @Test fun `GALLERY_MAIN_ACTIVITY_SYNTHETIC_DIRECT`() {
+        val d=Files.createTempDirectory("gallery-current").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/com.miui.gallery.png" to png(1)))
+        val route=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("com.miui.gallery","com.miui.gallery.MainActivity",emptySet(),null,png(9)))).components.single()
+        assertEquals("res/drawable-xxhdpi/com.miui.gallery.MainActivity.png",route.currentActivityEntry);assertTrue(!route.currentActivityEntryExisted);assertTrue(route.directMatchedEntries.isEmpty())
+    }
+    @Test fun `GALLERY_PACKAGE_CURRENT_AND_LEGACY_ALL_WRITTEN`() {
+        val d=Files.createTempDirectory("gallery-all").toFile();val b=File(d,"base");val p=File(d,"patched");val value=png(9)
+        zip(b,mapOf("res/drawable-xxhdpi/com.miui.gallery.png" to png(1),"res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png" to png(2)))
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("com.miui.gallery","com.miui.gallery.MainActivity",emptySet(),null,value)))
+        HyperOs3ThemePatcher.patch(b,p,plan.replacements,250);ZipFile(p).use { z -> listOf("res/drawable-xxhdpi/com.miui.gallery.png","res/drawable-xxhdpi/com.miui.gallery.MainActivity.png","res/drawable-xxhdpi/com.miui.gallery.activity.HomePageActivity.png").forEach { assertEntry(z,it,value) } }
+    }
+    @Test fun `CURRENT_ACTIVITY_EXISTING_ENTRY_NOT_DUPLICATED`() {
+        val d=Files.createTempDirectory("current-distinct").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Main.png" to png(1)))
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Main",emptySet(),null,png(9))))
+        assertEquals(1,plan.replacements.count{it.entryName=="res/drawable-xxhdpi/pkg.Main.png"})
+    }
+    @Test fun `FOREIGN_NAMESPACE_CURRENT_ACTIVITY_CREATED`() {
+        val d=Files.createTempDirectory("foreign-current").toFile();val b=File(d,"base");zip(b,emptyMap())
+        val route=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("com.android.chrome","com.google.android.apps.chrome.Main",emptySet(),null,png(9)))).components.single()
+        assertEquals("res/drawable-xxhdpi/com.google.android.apps.chrome.Main.png",route.currentActivityEntry)
+    }
+    @Test fun `MULTI_LAUNCHER_CURRENT_ENTRIES_DISTINCT`() {
+        val d=Files.createTempDirectory("multi-current").toFile();val b=File(d,"base");zip(b,emptyMap())
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.People",emptySet(),null,png(7)),RenderedThemeActivityIcon("pkg","pkg.Dialer",emptySet(),null,png(8))))
+        assertTrue(plan.replacements.first{it.entryName.endsWith("pkg.People.png")}.png.contentEquals(png(7)));assertTrue(plan.replacements.first{it.entryName.endsWith("pkg.Dialer.png")}.png.contentEquals(png(8)))
+    }
+    @Test fun `SYNTHETIC_CURRENT_ENTRY_BYTES_VERIFIED`() {
+        val d=Files.createTempDirectory("verify-current").toFile();val b=File(d,"base");val p=File(d,"patched");zip(b,emptyMap());val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Main",emptySet(),null,png(9))))
+        HyperOs3ThemePatcher.patch(b,p,plan.replacements,250);assertTrue(ThemeApplicationPlanVerifier.verify(p,plan))
+    }
+    @Test fun `TARGET_ACTIVITY_NOT_SYNTHETIC_CREATED`() {
+        val d=Files.createTempDirectory("target-no-synthetic").toFile();val b=File(d,"base");zip(b,emptyMap());val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Current",emptySet(),"pkg.Target",png(9))))
+        assertTrue(plan.replacements.none{it.entryName=="res/drawable-xxhdpi/pkg.Target.png"})
+    }
+    @Test fun `UNKNOWN_ALIAS_NOT_SYNTHETIC_CREATED`() {
+        val d=Files.createTempDirectory("alias-no-synthetic").toFile();val b=File(d,"base");zip(b,emptyMap());val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Current",setOf("pkg.UnknownAlias"),null,png(9))))
+        assertTrue(plan.replacements.none{it.entryName=="res/drawable-xxhdpi/pkg.UnknownAlias.png"})
+    }
+    @Test fun `CURRENT_ACTIVITY_BEATS_EXISTING_DIRECT_COMPAT`() {
+        val d=Files.createTempDirectory("current-beats-direct").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Shared.png" to png(1)));val current=png(8)
+        val plan=HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.A",setOf("pkg.Shared"),null,png(7)),RenderedThemeActivityIcon("pkg","pkg.Shared",emptySet(),null,current)))
+        assertTrue(plan.entryConflicts.isEmpty());assertTrue(plan.replacements.first{it.entryName.endsWith("pkg.Shared.png")}.png.contentEquals(current))
     }
     private fun assertEntry(zip: ZipFile, name: String, expected: ByteArray) = assertTrue(zip.getInputStream(zip.getEntry(name)).readBytes().contentEquals(expected))
     private fun zip(file: File, contents: Map<String, ByteArray>) = ZipOutputStream(file.outputStream()).use { out -> contents.forEach { (name, bytes) -> out.putNextEntry(ZipEntry(name)); out.write(bytes); out.closeEntry() } }

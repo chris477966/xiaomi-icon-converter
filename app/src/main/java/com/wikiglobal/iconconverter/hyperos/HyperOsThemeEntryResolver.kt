@@ -32,6 +32,7 @@ class HyperOsThemeArchiveIndex private constructor(val entries:Set<String>){
 }
 data class ComponentThemeRoute(
     val packageName:String,val launcherActivity:String,val targetActivity:String?,val packageEntry:String,
+    val currentActivityEntry:String, val currentActivityEntryExisted:Boolean,
     val directMatchedEntries:List<String>,val targetFallbackMatchedEntries:List<String>,
     val legacyThemeAliasEntries:List<String> = emptyList(), val legacyAliasStatus:LegacyAliasStatus = LegacyAliasStatus.NONE,
     val finalReplacementEntries:List<String>
@@ -40,11 +41,12 @@ object HyperOsThemeEntryResolver {
  fun baseEntry(p:String)="${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$p.png"
  private fun candidates(pkg:String,full:String):List<String>{val rel=relativeActivity(pkg,full);val simple=simpleActivity(pkg,full);return buildList{add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$full.png");rel?.let{add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$pkg#$it.png")};add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$pkg#$simple.png");add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$pkg.$simple.png")}}
  fun resolve(index:HyperOsThemeArchiveIndex,id:LauncherComponentIdentity):ComponentThemeRoute{
+    val current="${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${id.launcherActivity}.png"
     val direct=id.activities.filter{it.role==ActivityIdentityRole.DIRECT}.flatMap{candidates(id.packageName,it.activity)}.distinct().filter(index::contains).sorted()
     val fallback=id.activities.filter{it.role==ActivityIdentityRole.TARGET_FALLBACK}.flatMap{candidates(id.packageName,it.activity)}.distinct().filter(index::contains).sorted()
     val legacyCandidates=if(direct.isEmpty()&&fallback.isEmpty()) index.legacyActivityEntries(id.packageName) else emptyList()
     val legacy=legacyCandidates.takeIf { it.size==1 }.orEmpty()
     val legacyStatus=when { legacy.isNotEmpty()->LegacyAliasStatus.UNIQUE; legacyCandidates.size>1->LegacyAliasStatus.AMBIGUOUS; else->LegacyAliasStatus.NONE }
-    return ComponentThemeRoute(id.packageName,id.launcherActivity,id.targetActivity,baseEntry(id.packageName),direct,fallback,legacy,legacyStatus,listOf(baseEntry(id.packageName))+direct+fallback+legacy)
+    return ComponentThemeRoute(id.packageName,id.launcherActivity,id.targetActivity,baseEntry(id.packageName),current,index.contains(current),direct,fallback,legacy,legacyStatus,(listOf(baseEntry(id.packageName),current)+direct+fallback+legacy).distinct())
  }
 }
