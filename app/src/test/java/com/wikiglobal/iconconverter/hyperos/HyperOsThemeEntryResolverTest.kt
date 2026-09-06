@@ -29,6 +29,6 @@ class HyperOsThemeEntryResolverTest {
     @Test fun `PACKAGE_NAMESPACE_ACTIVITY_UNCHANGED`() { assertEquals("com.tencent.mm.ui.LauncherUI", normalizeActivityClassName("com.tencent.mm", "com.tencent.mm.ui.LauncherUI")) }
     @Test fun `TARGET_ACTIVITY_FOREIGN_NAMESPACE`() {
         val identity=LauncherComponentIdentity.from("com.foo","com.foo.alias.Home",setOf("org.vendor.real.HomeActivity"))
-        assertEquals(setOf("com.foo.alias.Home","org.vendor.real.HomeActivity"),identity.equivalentActivities)
+        assertEquals(setOf("com.foo.alias.Home","org.vendor.real.HomeActivity"),identity.activities.map { it.activity }.toSet())
     }
 }

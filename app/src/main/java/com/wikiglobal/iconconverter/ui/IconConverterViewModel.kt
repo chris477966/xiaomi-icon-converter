@@ -531,7 +531,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
 
     /** Delegates exact alias matching to the archive-only planner; never wildcard-matches package names. */
     private fun themedReplacements(base: java.io.File, rendered: List<Pair<IconMatch, ByteArray>>): ThemeApplicationPlan = rendered
-        .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, match.app.activityAliases, png) }
+        .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, match.app.activityAliases, match.app.targetActivity, png) }
         .let { HyperOsThemeReplacementPlanner.plan(base, it) }
 
     private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.existingActivityRouteComponents, applied.plan.packageOnlyComponents, applied.plan.existingActivityEntriesMatched, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)

@@ -72,6 +72,24 @@ class HyperOsThemeReplacementPlannerTest {
         val plan=HyperOsThemeReplacementPlanner.plan(base,listOf(RenderedThemeActivityIcon("a","a.Main",emptySet(),png(1)),RenderedThemeActivityIcon("b","b.Main",emptySet(),png(2))))
         assertEquals(plan.generatedComponentCount,plan.plannedComponentCount);assertTrue(plan.unroutedComponents.isEmpty())
     }
+    @Test fun `DIRECT_BEATS_TARGET_FALLBACK`() {
+        val dir=Files.createTempDirectory("direct-wins").toFile();val base=File(dir,"base");zip(base,mapOf("res/drawable-xxhdpi/pkg.People.png" to png(1)))
+        val plan=HyperOsThemeReplacementPlanner.plan(base,listOf(RenderedThemeActivityIcon("pkg","pkg.People",emptySet(),null,png(7)),RenderedThemeActivityIcon("pkg","pkg.Dialer",emptySet(),"pkg.People",png(8))))
+        assertTrue(plan.entryConflicts.isEmpty());assertTrue(plan.replacements.first{it.entryName.endsWith("pkg.People.png")}.png.contentEquals(png(7)))
+    }
+    @Test fun `CONTACTS_PEOPLE_DIALER_NO_FALSE_CONFLICT`() {
+        val dir=Files.createTempDirectory("contacts").toFile();val base=File(dir,"base");zip(base,mapOf("res/drawable-xxhdpi/com.android.contacts.png" to png(1),"res/drawable-xxhdpi/com.android.contacts.activities.PeopleActivity.png" to png(2),"res/drawable-xxhdpi/com.android.contacts.activities.TwelveKeyDialer.png" to png(3)))
+        val people=png(7);val dialer=png(8);val plan=HyperOsThemeReplacementPlanner.plan(base,listOf(RenderedThemeActivityIcon("com.android.contacts","com.android.contacts.activities.PeopleActivity",emptySet(),null,people),RenderedThemeActivityIcon("com.android.contacts","com.android.contacts.activities.TwelveKeyDialer",emptySet(),"com.android.contacts.activities.PeopleActivity",dialer)))
+        assertTrue(plan.entryConflicts.isEmpty());assertTrue(plan.replacements.first{it.entryName.endsWith("PeopleActivity.png")}.png.contentEquals(people));assertTrue(plan.replacements.first{it.entryName.endsWith("TwelveKeyDialer.png")}.png.contentEquals(dialer))
+    }
+    @Test fun `TARGET_FALLBACK_USED_WHEN_NO_DIRECT_OWNER`() {
+        val dir=Files.createTempDirectory("fallback").toFile();val base=File(dir,"base");zip(base,mapOf("res/drawable-xxhdpi/pkg.real.Home.png" to png(1)));val plan=HyperOsThemeReplacementPlanner.plan(base,listOf(RenderedThemeActivityIcon("pkg","pkg.alias.Home",emptySet(),"pkg.real.Home",png(9))))
+        assertTrue(plan.replacements.any{it.entryName.endsWith("pkg.real.Home.png")&&it.png.contentEquals(png(9))})
+    }
+    @Test fun `DIRECT_DIRECT_DIFFERENT_BYTES_CONFLICT`() { val d=Files.createTempDirectory("dd").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg#Shared.png" to png(1)));assertTrue(HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.a.Shared",emptySet(),null,png(2)),RenderedThemeActivityIcon("pkg","pkg.b.Shared",emptySet(),null,png(3)))).entryConflicts.isNotEmpty()) }
+    @Test fun `TARGET_TARGET_DIFFERENT_BYTES_CONFLICT`() { val d=Files.createTempDirectory("tt").toFile();val b=File(d,"base");zip(b,mapOf("res/drawable-xxhdpi/pkg.Target.png" to png(1)));assertTrue(HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.A",emptySet(),"pkg.Target",png(2)),RenderedThemeActivityIcon("pkg","pkg.B",emptySet(),"pkg.Target",png(3)))).entryConflicts.isNotEmpty()) }
+    @Test fun `MODE_SWITCH_MATERIAL_TO_ICON_PACK_PLAN`() { val d=Files.createTempDirectory("m2i").toFile();val b=File(d,"base");zip(b,emptyMap());assertEquals(1,HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Main",emptySet(),png(1)))).plannedComponentCount) }
+    @Test fun `MODE_SWITCH_ICON_PACK_TO_MATERIAL_PLAN`() { val d=Files.createTempDirectory("i2m").toFile();val b=File(d,"base");zip(b,emptyMap());assertEquals(1,HyperOsThemeReplacementPlanner.plan(b,listOf(RenderedThemeActivityIcon("pkg","pkg.Main",emptySet(),png(2)))).plannedComponentCount) }
     private fun assertEntry(zip: ZipFile, name: String, expected: ByteArray) = assertTrue(zip.getInputStream(zip.getEntry(name)).readBytes().contentEquals(expected))
     private fun zip(file: File, contents: Map<String, ByteArray>) = ZipOutputStream(file.outputStream()).use { out -> contents.forEach { (name, bytes) -> out.putNextEntry(ZipEntry(name)); out.write(bytes); out.closeEntry() } }
     private fun png(marker:Int)=ByteArray(48).also { b -> byteArrayOf(-119,80,78,71,13,10,26,10).copyInto(b);b[12]=73;b[13]=72;b[14]=68;b[15]=82;b[17]=0;b[18]=0;b[19]=-6;b[21]=0;b[22]=0;b[23]=-6;b[24]=8;b[25]=6;b[47]=marker.toByte() }

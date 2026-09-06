@@ -7,9 +7,11 @@ data class RenderedThemeActivityIcon(
     val packageName: String,
     val launcherActivity: String,
     val equivalentActivities: Set<String> = emptySet(),
+    val targetActivity: String? = null,
     val png: ByteArray
 ) {
-    val identity get() = LauncherComponentIdentity.from(packageName, launcherActivity, equivalentActivities)
+    constructor(packageName: String, launcherActivity: String, equivalentActivities: Set<String>, png: ByteArray) : this(packageName, launcherActivity, equivalentActivities, null, png)
+    val identity get() = LauncherComponentIdentity.from(packageName, launcherActivity, targetActivity, equivalentActivities)
 }
 data class ThemeEntryConflict(val entryName: String, val firstPackage: String, val firstActivity: String, val secondPackage: String, val secondActivity: String)
 data class ThemeApplicationPlan(
@@ -36,11 +38,18 @@ object HyperOsThemeReplacementPlanner {
         val routes = ordered.map { icon -> icon to HyperOsThemeEntryResolver.resolve(index, icon.identity) }
         val selected = linkedMapOf<String, Pair<RenderedThemeActivityIcon, ByteArray>>()
         val conflicts = mutableListOf<ThemeEntryConflict>(); val baseOwners = mutableSetOf<String>()
-        routes.forEach { (icon, route) -> route.replacementEntries.forEach { entry ->
-            if (entry == route.packageEntry && !baseOwners.add(entry)) return@forEach
-            val previous = selected[entry]
-            if (previous == null) selected[entry] = icon to icon.png
-            else if (!previous.second.contentEquals(icon.png)) conflicts += ThemeEntryConflict(entry, previous.first.packageName, previous.first.identity.launcherActivity, icon.packageName, icon.identity.launcherActivity)
+        fun claim(entry:String, icon:RenderedThemeActivityIcon, allowDirectOwner:Boolean) {
+            val previous=selected[entry]
+            if(previous==null) selected[entry]=icon to icon.png
+            else if(!previous.second.contentEquals(icon.png) && allowDirectOwner) conflicts+=ThemeEntryConflict(entry,previous.first.packageName,previous.first.identity.launcherActivity,icon.packageName,icon.identity.launcherActivity)
+        }
+        routes.forEach { (icon,route) -> if(baseOwners.add(route.packageEntry)) selected[route.packageEntry]=icon to icon.png }
+        // Direct entries establish ownership before any target fallback may claim them.
+        routes.forEach { (icon,route) -> route.directMatchedEntries.forEach { claim(it,icon,true) } }
+        routes.forEach { (icon,route) -> route.targetFallbackMatchedEntries.forEach { entry ->
+            // An existing direct claim wins; only competing target fallbacks remain conflicts.
+            val directOwner=routes.any { (_,candidate)->entry in candidate.directMatchedEntries }
+            if(!directOwner) claim(entry,icon,true)
         } }
         return ThemeApplicationPlan(
             replacements = selected.map { (entry, value) -> HyperOs3IconReplacement(value.first.packageName, value.second, exactEntryName = entry) },

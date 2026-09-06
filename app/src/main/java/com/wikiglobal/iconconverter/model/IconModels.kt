@@ -39,7 +39,9 @@ data class InstalledApp(
     val applicationIconResourceId: Int = 0,
     val isSystemApp: Boolean = false,
     /** Includes aliases/targets reported by PackageManager; used for deterministic alias matching. */
-    val activityAliases: Set<String> = emptySet()
+    val activityAliases: Set<String> = emptySet(),
+    /** Resolved ActivityInfo.targetActivity; routing treats it as lower-priority fallback. */
+    val targetActivity: String? = null
 ) {
     /** Activity icon gives a launcher alias its actual presentation; application icon remains available for export/UI. */
     val originalIcon: Drawable get() = activityIcon ?: applicationIcon

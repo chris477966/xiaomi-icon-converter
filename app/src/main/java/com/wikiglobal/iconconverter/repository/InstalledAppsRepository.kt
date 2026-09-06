@@ -28,7 +28,8 @@ class InstalledAppsRepository(private val context: Context) {
                     activityIconResourceId = info.icon,
                     applicationIconResourceId = info.applicationInfo.icon,
                     isSystemApp = info.applicationInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,
-                    activityAliases = aliases.map { normalizeActivityClassName(info.packageName, it) }.toSet()
+                    activityAliases = aliases.map { normalizeActivityClassName(info.packageName, it) }.toSet(),
+                    targetActivity = info.targetActivity?.let { normalizeActivityClassName(info.packageName, it) }
                 )
             }
         ).sortedWith(compareBy<InstalledApp> { it.label.lowercase() }.thenBy { it.packageName }.thenBy { it.launcherActivity })
