@@ -15,7 +15,15 @@ class InstalledAppsRepository(private val context: Context) {
     /** Returns one entry per unique package/activity pair, including both user and system launcher activities. */
     fun launcherApps(): List<InstalledApp> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return deduplicateLauncherActivities(queryLauncherActivities(intent)
+        return launcherAppsForIntent(intent)
+    }
+
+    /** Uses the same normalized component construction as the full launcher query. */
+    fun launcherAppsForPackage(packageName: String): List<InstalledApp> =
+        launcherAppsForIntent(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(packageName))
+
+    private fun launcherAppsForIntent(intent: Intent): List<InstalledApp> =
+        deduplicateLauncherActivities(queryLauncherActivities(intent)
             .mapNotNull { resolved ->
                 val info = resolved.activityInfo ?: return@mapNotNull null
                 val aliases = setOfNotNull(info.name, info.targetActivity)
@@ -33,7 +41,6 @@ class InstalledAppsRepository(private val context: Context) {
                 )
             }
         ).sortedWith(compareBy<InstalledApp> { it.label.lowercase() }.thenBy { it.packageName }.thenBy { it.launcherActivity })
-    }
 
     @Suppress("DEPRECATION")
     private fun queryLauncherActivities(intent: Intent): List<ResolveInfo> =

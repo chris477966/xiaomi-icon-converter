@@ -64,6 +64,13 @@ import com.wikiglobal.iconconverter.renderer.IconRenderer
 import com.wikiglobal.iconconverter.renderer.AdaptiveIconPackRenderer
 import com.wikiglobal.iconconverter.hyperos.IconShape
 import com.wikiglobal.iconconverter.repository.InstalledAppsRepository
+import com.wikiglobal.iconconverter.autoadapt.ActiveThemeMode
+import com.wikiglobal.iconconverter.autoadapt.ActiveThemeModeStore
+import com.wikiglobal.iconconverter.autoadapt.AutoAdaptDryRunStore
+import com.wikiglobal.iconconverter.autoadapt.AutoAdaptSettingsStore
+import com.wikiglobal.iconconverter.autoadapt.AutoAdaptSummary
+import com.wikiglobal.iconconverter.autoadapt.SelectedIconPackMetadata
+import com.wikiglobal.iconconverter.autoadapt.SelectedIconPackStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -130,6 +137,8 @@ data class ConverterUiState(
     val monet: MonetUiState = MonetUiState(),
     val lastApplySummary: ThemeApplySummary? = null,
     val lastApplyRoutes: List<ThemeRouteDiagnostic> = emptyList(),
+    val autoAdaptEnabled: Boolean = false,
+    val autoAdaptSummary: AutoAdaptSummary = AutoAdaptSummary(),
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -153,11 +162,16 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     private val installedMaterialStore = MaterialInstalledStateStore(application)
     private val previewRefreshMutex = Mutex()
     private val backupManager = ThemeBackupManager(application.filesDir, rootExecutor, FileThemeSessionStore(java.io.File(application.filesDir, "theme-session.txt")))
+    private val activeThemeModeStore = ActiveThemeModeStore(application)
+    private val selectedIconPackStore = SelectedIconPackStore(application)
+    private val autoAdaptSettingsStore = AutoAdaptSettingsStore(application)
+    private val autoAdaptDryRunStore = AutoAdaptDryRunStore(application)
     private val _uiState = MutableStateFlow(ConverterUiState())
     val uiState: StateFlow<ConverterUiState> = _uiState.asStateFlow()
 
     init {
         reloadApps()
+        _uiState.value = _uiState.value.copy(autoAdaptEnabled = autoAdaptSettingsStore.enabled(), autoAdaptSummary = autoAdaptDryRunStore.summary())
         viewModelScope.launch {
             SystemMonetChangeNotifier.changes.collect {
                 refreshSystemMonetPreviewIfChanged()
@@ -415,6 +429,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         } }.onSuccess { applied ->
             val monet = _uiState.value.monet
             installedMaterialStore.save(MaterialInstalledState(true, monet.style.colorMode, monet.palette!!.hash(), monet.style.customSeedColor, monet.style.shape, monet.dark, System.currentTimeMillis(), applied.archiveSha, monet.style.followWallpaperMonet, AutoRecolorStatus.IDLE))
+            activeThemeModeStore.set(ActiveThemeMode.MATERIAL_YOU)
             _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("MATERIAL_YOU", applied), lastApplyRoutes = routeDiagnostics(applied), message = applyMessage(applied))
         }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "Material You 应用失败") }
@@ -438,7 +453,10 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(loading = true, message = null)
         runCatching {
             withContext(Dispatchers.IO) {
-                val pack = parser.parse(uri)
+                val temporary = selectedIconPackStore.copyToTemporary(uri)
+                val validated = parser.parseApk(temporary)
+                val selected = selectedIconPackStore.commitTemporary(temporary, SelectedIconPackMetadata(validated.packageName, validated.displayName, HyperOs3ThemePatcher.sha256(temporary), System.currentTimeMillis()))
+                val pack = parser.parseApk(selected)
                 val apps = appsRepository.launcherApps()
                 Triple(pack, apps, IconMatcher.match(apps, pack.mappings, pack.calendars))
             }
@@ -538,7 +556,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             check(ThemeApplicationPlanVerifier.verify(patched, plan)) { "PATCH_PLAN_BYTES_VERIFICATION_FAILED" }
             val installed = backupManager.install(patched, pack.packageName, "ICON_PACK", null).getOrThrow()
             AppliedThemeResult(plan, installed.lastInstalledSha256.orEmpty(), if (ThemeApplyCompletion.softRefresh(rootExecutor)) LauncherRefreshStatus.SUCCESS else LauncherRefreshStatus.FAILED)
-        } }.onSuccess { applied -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("ICON_PACK", applied), lastApplyRoutes = routeDiagnostics(applied), message = applyMessage(applied)) }
+        } }.onSuccess { applied -> activeThemeModeStore.set(ActiveThemeMode.ICON_PACK); _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("ICON_PACK", applied), lastApplyRoutes = routeDiagnostics(applied), message = applyMessage(applied)) }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "应用失败；当前主题未被覆盖") }
     }
 
@@ -567,6 +585,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     fun restoreOriginalTheme() = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(themeOperationRunning = true, message = null)
         val result = withContext(Dispatchers.IO) { backupManager.restore() }
+        if (result.isSuccess) activeThemeModeStore.set(ActiveThemeMode.NONE)
         _uiState.value = if (result.isSuccess) _uiState.value.copy(themeOperationRunning = false, message = "原主题已安全恢复") else _uiState.value.copy(themeOperationRunning = false, message = result.exceptionOrNull()?.message ?: "恢复失败")
     }
 
@@ -611,6 +630,15 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 } ?: error("无法写入路由报告")
             }
         }.onSuccess { _uiState.value = _uiState.value.copy(message = "最近应用路由已导出") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "导出失败") }
+    }
+
+    fun setAutoAdaptEnabled(enabled: Boolean) { autoAdaptSettingsStore.setEnabled(enabled); _uiState.value = _uiState.value.copy(autoAdaptEnabled = enabled) }
+    fun refreshAutoAdaptSummary() { _uiState.value = _uiState.value.copy(autoAdaptSummary = autoAdaptDryRunStore.summary()) }
+    fun exportAutoAdaptReport(uri: Uri) = viewModelScope.launch {
+        val report = autoAdaptDryRunStore.report() ?: return@launch
+        runCatching { withContext(Dispatchers.IO) { getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(report) } ?: error("无法写入自动适配报告") } }
+            .onSuccess { _uiState.value = _uiState.value.copy(message = "自动适配报告已导出") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "导出失败") }
     }
 

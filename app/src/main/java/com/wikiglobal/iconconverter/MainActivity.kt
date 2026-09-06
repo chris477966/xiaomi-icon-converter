@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
             val saveIcons = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { it?.let(viewModel::generateTo) }
             val saveReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportDiagnosticReport) }
             val saveRouteReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportLastApplyRouteReport) }
+            val saveAutoAdaptReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportAutoAdaptReport) }
             val saveMaterialReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportMaterialSourceReport) }
             val colors = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) if (isSystemInDarkTheme()) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this) else null
             MaterialTheme(colorScheme = colors ?: androidx.compose.material3.lightColorScheme()) {
@@ -38,6 +39,9 @@ class MainActivity : ComponentActivity() {
                         onCheckHyperOs = viewModel::checkHyperOsCompatibility,
                         onExportReport = { saveReport.launch("hyperos3-theme-report.txt") },
                         onExportRouteReport = { saveRouteReport.launch("theme-route-report.txt") },
+                        onAutoAdaptEnabled = viewModel::setAutoAdaptEnabled,
+                        onExportAutoAdaptReport = { saveAutoAdaptReport.launch("auto-adapt-dry-run-report.txt") },
+                        onToolsVisible = viewModel::refreshAutoAdaptSummary,
                         onExportMaterialReport = { saveMaterialReport.launch("material-source-report.txt") },
                         onCheckRoot = viewModel::checkRoot,
                         onApplyTheme = viewModel::applyCurrentModeToSystem,
