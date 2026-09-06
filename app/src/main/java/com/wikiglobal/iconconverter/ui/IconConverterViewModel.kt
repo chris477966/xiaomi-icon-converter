@@ -95,6 +95,14 @@ data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? =
 }
 enum class LauncherRefreshStatus { SUCCESS, FAILED }
 data class ThemeApplySummary(val mode: String, val generatedComponents: Int, val plannedComponents: Int, val existingActivityRouteComponents: Int, val packageOnlyComponents: Int, val existingActivityEntriesMatched: Int, val packageBaseEntries: Int, val activityAliasEntries: Int, val totalReplacements: Int, val unroutedComponents: Int, val entryConflicts: Int, val patchVerified: Boolean, val archiveInstallVerified: Boolean, val launcherRefreshStatus: LauncherRefreshStatus)
+data class ThemeRouteDiagnostic(
+    val packageName: String,
+    val launcherActivity: String,
+    val targetActivity: String?,
+    val directMatchedEntries: List<String>,
+    val targetFallbackMatchedEntries: List<String>,
+    val finalReplacementEntries: List<String>
+)
 private data class AppliedThemeResult(val plan: ThemeApplicationPlan, val archiveSha: String, val refreshStatus: LauncherRefreshStatus)
 
 data class ConverterUiState(
@@ -117,6 +125,7 @@ data class ConverterUiState(
     val rebaseConfirmationRequired: Boolean = false,
     val monet: MonetUiState = MonetUiState(),
     val lastApplySummary: ThemeApplySummary? = null,
+    val lastApplyRoutes: List<ThemeRouteDiagnostic> = emptyList(),
     val message: String? = null
 ) {
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
@@ -402,7 +411,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         } }.onSuccess { applied ->
             val monet = _uiState.value.monet
             installedMaterialStore.save(MaterialInstalledState(true, monet.style.colorMode, monet.palette!!.hash(), monet.style.customSeedColor, monet.style.shape, monet.dark, System.currentTimeMillis(), applied.archiveSha, monet.style.followWallpaperMonet, AutoRecolorStatus.IDLE))
-            _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("MATERIAL_YOU", applied), message = applyMessage(applied))
+            _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("MATERIAL_YOU", applied), lastApplyRoutes = routeDiagnostics(applied), message = applyMessage(applied))
         }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "Material You 应用失败") }
     }
@@ -525,7 +534,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             check(ThemeApplicationPlanVerifier.verify(patched, plan)) { "PATCH_PLAN_BYTES_VERIFICATION_FAILED" }
             val installed = backupManager.install(patched, pack.packageName, "ICON_PACK", null).getOrThrow()
             AppliedThemeResult(plan, installed.lastInstalledSha256.orEmpty(), if (ThemeApplyCompletion.softRefresh(rootExecutor)) LauncherRefreshStatus.SUCCESS else LauncherRefreshStatus.FAILED)
-        } }.onSuccess { applied -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("ICON_PACK", applied), message = applyMessage(applied)) }
+        } }.onSuccess { applied -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, lastApplySummary = summary("ICON_PACK", applied), lastApplyRoutes = routeDiagnostics(applied), message = applyMessage(applied)) }
             .onFailure { error -> _uiState.value = _uiState.value.copy(themeOperationRunning = false, message = error.message ?: "应用失败；当前主题未被覆盖") }
     }
 
@@ -535,6 +544,16 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         .let { HyperOsThemeReplacementPlanner.plan(base, it) }
 
     private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.existingActivityRouteComponents, applied.plan.packageOnlyComponents, applied.plan.existingActivityEntriesMatched, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)
+    private fun routeDiagnostics(applied: AppliedThemeResult): List<ThemeRouteDiagnostic> = applied.plan.components.map { route ->
+        ThemeRouteDiagnostic(
+            packageName = route.packageName,
+            launcherActivity = route.launcherActivity,
+            targetActivity = route.targetActivity,
+            directMatchedEntries = route.directMatchedEntries,
+            targetFallbackMatchedEntries = route.targetFallbackMatchedEntries,
+            finalReplacementEntries = route.finalReplacementEntries
+        )
+    }
     private fun applyMessage(applied: AppliedThemeResult): String = "已应用 ${applied.plan.plannedComponentCount} 个应用 · 更新 ${applied.plan.totalReplacementCount} 个主题条目" + if (applied.refreshStatus == LauncherRefreshStatus.SUCCESS) "" else "；桌面刷新请求失败，可在工具页重试"
 
     fun restoreOriginalTheme() = viewModelScope.launch {
@@ -570,6 +589,21 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             }
         }.onSuccess { _uiState.value = _uiState.value.copy(diagnosticMessage = "诊断报告已导出") }
             .onFailure { error -> _uiState.value = _uiState.value.copy(diagnosticMessage = error.message ?: "导出失败") }
+    }
+
+    /** Exports only exact archive route names from the last successful apply. */
+    fun exportLastApplyRouteReport(uri: Uri) = viewModelScope.launch {
+        val state = _uiState.value
+        val summary = state.lastApplySummary ?: return@launch
+        if (state.lastApplyRoutes.isEmpty()) return@launch
+        runCatching {
+            withContext(Dispatchers.IO) {
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                    it.write(ThemeRouteReport.format(summary, state.lastApplyRoutes))
+                } ?: error("无法写入路由报告")
+            }
+        }.onSuccess { _uiState.value = _uiState.value.copy(message = "最近应用路由已导出") }
+            .onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "导出失败") }
     }
 
     /** Exports provider/candidate decisions only; no theme archive or PNG bytes leave the app. */
