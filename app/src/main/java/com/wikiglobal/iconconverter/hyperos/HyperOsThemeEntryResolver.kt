@@ -10,24 +10,27 @@ data class LauncherComponentIdentity(
 ) {
     companion object {
         fun from(packageName: String, launcherActivity: String, activityAliases: Set<String>): LauncherComponentIdentity {
-            val normalizedLauncher = normalizeActivity(packageName, launcherActivity)
+            val normalizedLauncher = normalizeActivityClassName(packageName, launcherActivity)
             return LauncherComponentIdentity(packageName, normalizedLauncher, (activityAliases + launcherActivity)
-                .map { normalizeActivity(packageName, it) }.toSortedSet())
+                .map { normalizeActivityClassName(packageName, it) }.toSortedSet())
         }
     }
 }
 
 /** Full activity names are authoritative; relative/simple forms are legacy archive compatibility only. */
-fun normalizeActivity(packageName: String, activity: String): String {
+fun normalizeActivityClassName(packageName: String, activity: String): String {
     val value = activity.trim()
     return when {
         value.startsWith(".") -> packageName + value
-        value.startsWith("$packageName.") || value == packageName -> value
-        else -> "$packageName.$value"
+        '.' !in value -> "$packageName.$value"
+        else -> value
     }
 }
-fun relativeActivity(packageName: String, fullActivity: String): String = normalizeActivity(packageName, fullActivity).removePrefix(packageName).removePrefix(".")
-fun simpleActivity(packageName: String, fullActivity: String): String = relativeActivity(packageName, fullActivity).substringAfterLast('.')
+fun relativeActivity(packageName: String, fullActivity: String): String? {
+    val normalized = normalizeActivityClassName(packageName, fullActivity)
+    return normalized.takeIf { it.startsWith("$packageName.") }?.removePrefix("$packageName.")
+}
+fun simpleActivity(packageName: String, fullActivity: String): String = normalizeActivityClassName(packageName, fullActivity).substringAfterLast('.')
 
 /** Baseline archive is scanned once per Apply; it records names only and never decodes PNGs. */
 class HyperOsThemeArchiveIndex private constructor(val entries: Set<String>) {
@@ -57,12 +60,12 @@ object HyperOsThemeEntryResolver {
         val activityEntries = identity.equivalentActivities.flatMap { full ->
             val relative = relativeActivity(identity.packageName, full)
             val simple = simpleActivity(identity.packageName, full)
-            listOf(
-                "${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$full.png",
-                "${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${identity.packageName}#$relative.png",
-                "${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${identity.packageName}#$simple.png",
-                "${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${identity.packageName}.$simple.png"
-            )
+            buildList {
+                add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}$full.png")
+                relative?.let { add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${identity.packageName}#$it.png") }
+                add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${identity.packageName}#$simple.png")
+                add("${HyperOs3ThemePatcher.DRAWABLE_PREFIX}${identity.packageName}.$simple.png")
+            }
         }.distinct().filter(index::contains).sorted()
         return ComponentThemeRoute(identity.packageName, identity.launcherActivity, identity.equivalentActivities, packageEntry, activityEntries, listOf(packageEntry) + activityEntries)
     }

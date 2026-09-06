@@ -20,6 +20,9 @@ data class ThemeApplicationPlan(
 ) {
     val generatedComponentCount get() = components.size + unroutedComponents.size
     val plannedComponentCount get() = components.size
+    val existingActivityRouteComponents get() = components.count { it.matchedActivityEntries.isNotEmpty() }
+    val packageOnlyComponents get() = generatedComponentCount - existingActivityRouteComponents
+    val existingActivityEntriesMatched get() = components.sumOf { it.matchedActivityEntries.size }
     val packageBaseReplacementCount get() = replacements.count { it.entryName.substringAfterLast('/').substringBeforeLast('.') == it.packageName }
     val activityAliasReplacementCount get() = replacements.size - packageBaseReplacementCount
     val totalReplacementCount get() = replacements.size

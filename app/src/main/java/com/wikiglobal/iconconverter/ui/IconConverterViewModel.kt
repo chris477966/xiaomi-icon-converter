@@ -94,7 +94,7 @@ data class MonetUiState(val generationId: Long = 0, val palette: MonetPalette? =
     fun sourceCount(source: MonetGlyphSource) = sources.values.count { it == source }
 }
 enum class LauncherRefreshStatus { SUCCESS, FAILED }
-data class ThemeApplySummary(val mode: String, val generatedComponents: Int, val plannedComponents: Int, val packageBaseEntries: Int, val activityAliasEntries: Int, val totalReplacements: Int, val unroutedComponents: Int, val entryConflicts: Int, val patchVerified: Boolean, val archiveInstallVerified: Boolean, val launcherRefreshStatus: LauncherRefreshStatus)
+data class ThemeApplySummary(val mode: String, val generatedComponents: Int, val plannedComponents: Int, val existingActivityRouteComponents: Int, val packageOnlyComponents: Int, val existingActivityEntriesMatched: Int, val packageBaseEntries: Int, val activityAliasEntries: Int, val totalReplacements: Int, val unroutedComponents: Int, val entryConflicts: Int, val patchVerified: Boolean, val archiveInstallVerified: Boolean, val launcherRefreshStatus: LauncherRefreshStatus)
 private data class AppliedThemeResult(val plan: ThemeApplicationPlan, val archiveSha: String, val refreshStatus: LauncherRefreshStatus)
 
 data class ConverterUiState(
@@ -534,7 +534,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         .map { (match, png) -> RenderedThemeActivityIcon(match.app.packageName, match.app.launcherActivity, match.app.activityAliases, png) }
         .let { HyperOsThemeReplacementPlanner.plan(base, it) }
 
-    private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)
+    private fun summary(mode: String, applied: AppliedThemeResult) = ThemeApplySummary(mode, applied.plan.generatedComponentCount, applied.plan.plannedComponentCount, applied.plan.existingActivityRouteComponents, applied.plan.packageOnlyComponents, applied.plan.existingActivityEntriesMatched, applied.plan.packageBaseReplacementCount, applied.plan.activityAliasReplacementCount, applied.plan.totalReplacementCount, applied.plan.unroutedComponents.size, applied.plan.entryConflicts.size, true, true, applied.refreshStatus)
     private fun applyMessage(applied: AppliedThemeResult): String = "已应用 ${applied.plan.plannedComponentCount} 个应用 · 更新 ${applied.plan.totalReplacementCount} 个主题条目" + if (applied.refreshStatus == LauncherRefreshStatus.SUCCESS) "" else "；桌面刷新请求失败，可在工具页重试"
 
     fun restoreOriginalTheme() = viewModelScope.launch {
