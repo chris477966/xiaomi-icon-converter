@@ -18,6 +18,27 @@ data class IconMapping(val component: ComponentKey, val drawableName: String)
 data class CalendarMapping(val component: ComponentKey, val prefix: String, val dayDrawables: Map<Int, String>)
 data class IconEffects(val iconBack: List<String> = emptyList(), val iconMask: List<String> = emptyList(), val iconUpon: List<String> = emptyList(), val scale: Float? = null)
 
+enum class IconAssignmentType { AUTOMATIC, MANUAL }
+
+/** A resource in an icon pack. The resource name is the stable lookup key; previews are lazy. */
+data class IconEntry(
+    val iconPackId: String,
+    val resourceName: String,
+    val resourceIdentifier: Int,
+    val resourceType: String = "drawable",
+    val mappedPackageNames: Set<String> = emptySet(),
+    val searchableKeywords: Set<String> = emptySet()
+)
+
+data class AppIconAssignment(
+    val appIdentifier: String,
+    val iconPackId: String,
+    val resourceName: String,
+    val assignmentType: IconAssignmentType,
+    val sourceAvailable: Boolean = true,
+    val resourceIdentifier: Int = 0
+)
+
 data class IconPack(
     val displayName: String,
     val packageName: String,
@@ -25,7 +46,12 @@ data class IconPack(
     val calendars: List<CalendarMapping>,
     val effects: IconEffects,
     /** APK resources; intentionally kept private to app process, never copied into system directories. */
-    val drawableLoader: (String) -> Drawable?
+    val drawableLoader: (String) -> Drawable?,
+    val id: String = packageName,
+    val versionName: String? = null,
+    val versionCode: Long? = null,
+    val entries: List<IconEntry> = emptyList(),
+    val resourceLoader: ((Int) -> Drawable?)? = null
 )
 
 data class InstalledApp(
@@ -56,7 +82,10 @@ data class IconMatch(
     val confidence: MatchConfidence,
     val drawableName: String? = null,
     val detail: String = "",
-    val dynamicCalendar: CalendarMapping? = null
+    val dynamicCalendar: CalendarMapping? = null,
+    val assignmentType: IconAssignmentType = IconAssignmentType.AUTOMATIC,
+    val sourceIconPackId: String? = null,
+    val resourceIdentifier: Int = 0
 )
 
 /** Reserved persistence/UI model for a future manual override picker. */

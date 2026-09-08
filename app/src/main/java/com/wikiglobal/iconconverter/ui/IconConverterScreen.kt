@@ -32,32 +32,81 @@ import com.wikiglobal.iconconverter.hyperos.IconShape
 import com.wikiglobal.iconconverter.hyperos.IconPackStyle
 import com.wikiglobal.iconconverter.hyperos.ThemeOwnershipState
 import com.wikiglobal.iconconverter.model.IconMatch
+import com.wikiglobal.iconconverter.model.IconEntry
+import com.wikiglobal.iconconverter.model.InstalledApp
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onExportRouteReport: () -> Unit, onExportMaterialReport: () -> Unit, onCheckRoot: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit, onRefreshCache: () -> Unit, onForceRestart: () -> Unit, onThemeMode: (ThemeMode) -> Unit, onMonetPreview: () -> Unit, onApplyMonet: () -> Unit, onMaterialOverride: (String, MaterialSourceOverride) -> Unit, onMaterialStyle: (MaterialStyle) -> Unit, onIconPackStyle: (IconPackStyle) -> Unit, onConfirmRebase: () -> Unit, onDismissRebase: () -> Unit) {
-    var tools by remember { mutableStateOf(false) }; val snackbar = remember { SnackbarHostState() }
+@Composable fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onOpenPicker: (InstalledApp) -> Unit, onClosePicker: () -> Unit, onPickerPack: (String) -> Unit, onSearchIcons: (String) -> Unit, onChooseIcon: (IconEntry) -> Unit, onRestoreAutomatic: (String) -> Unit, onSetActivePack: (String) -> Unit, onDeletePack: (String) -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onExportRouteReport: () -> Unit, onExportMaterialReport: () -> Unit, onCheckRoot: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit, onRefreshCache: () -> Unit, onForceRestart: () -> Unit, onThemeMode: (ThemeMode) -> Unit, onMonetPreview: () -> Unit, onApplyMonet: () -> Unit, onMaterialOverride: (String, MaterialSourceOverride) -> Unit, onMaterialStyle: (MaterialStyle) -> Unit, onIconPackStyle: (IconPackStyle) -> Unit, onConfirmRebase: () -> Unit, onDismissRebase: () -> Unit) {
+    var tools by remember { mutableStateOf(false) }; var managePacks by remember { mutableStateOf(false) }; val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it) } }
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing, topBar = { TopAppBar(title = { Text("HyperIcon") }, actions = { IconButton({ tools = !tools }) { Text("⚙", modifier = Modifier.semantics { contentDescription = "Settings / Tools" }) } }) }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = { if (!tools) BottomAppBar { Button(if(state.rootAvailable) onApplyTheme else onCheckRoot, enabled = ((state.themeMode == ThemeMode.ICON_PACK && state.iconPack != null && state.matchedCount > 0) || (state.themeMode == ThemeMode.MATERIAL_YOU && state.monet.generated.isNotEmpty())) && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text(if (state.rootAvailable) "应用到 HyperOS 3" else "检查 Root 并继续") } } }) { padding ->
         if (tools) SystemToolsScreen(Modifier.padding(padding), state, onCheckRoot, onRestoreTheme, onRefreshCache, onForceRestart, onCheckHyperOs, onExportReport, onExportRouteReport)
         else Column(Modifier.padding(padding).fillMaxSize()) {
             PrimaryTabRow(selectedTabIndex = ThemeMode.entries.indexOf(state.themeMode)) { ThemeMode.entries.forEach { mode -> Tab(selected = state.themeMode == mode, onClick = { onThemeMode(mode) }, text = { Text(if(mode == ThemeMode.ICON_PACK) "图标包" else "Material You") }) } }
-            if (state.themeMode == ThemeMode.ICON_PACK) { SourceCard(state, onSelect); IconPackScreen(state, onIconPackStyle, Modifier.weight(1f)) } else MaterialYouScreen(state, onMonetPreview, onMaterialOverride, onExportMaterialReport, onMaterialStyle, Modifier.weight(1f))
+            if (state.themeMode == ThemeMode.ICON_PACK) { SourceCard(state, onSelect, { managePacks = true }); IconPackScreen(state, onIconPackStyle, onOpenPicker, onRestoreAutomatic, Modifier.weight(1f)) } else MaterialYouScreen(state, onMonetPreview, onMaterialOverride, onExportMaterialReport, onMaterialStyle, Modifier.weight(1f))
         }
         if (state.themeOperationRunning) Box(Modifier.fillMaxSize(), contentAlignment=Alignment.Center) { Card { Row(Modifier.padding(20.dp), verticalAlignment=Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text("正在处理主题…") } } }
         if (state.rebaseConfirmationRequired) AlertDialog(onDismissRequest = onDismissRebase, title = { Text("检测到图标主题已更换") }, text = { Text("当前图标主题可能已通过系统主题商店或其他工具更换。继续后，本应用会把当前主题作为新的基础主题，并只在其上替换所选图标。以后“恢复主题”将恢复到当前这套主题。") }, confirmButton = { TextButton(onConfirmRebase) { Text("以当前主题为基础并应用") } }, dismissButton = { TextButton(onDismissRebase) { Text("取消") } })
+        if (managePacks) IconPackManagementDialog(state, { onSetActivePack(it); managePacks = false }, { onDeletePack(it) }, { managePacks = false })
+        state.iconPickerApp?.let { app -> IconPickerSheet(state, app, onPickerPack, onSearchIcons, onChooseIcon, onClosePicker) }
     }
 }
 
-@Composable private fun SourceCard(state: ConverterUiState, select: () -> Unit) = Card(Modifier.fillMaxWidth().padding(16.dp)) { Row(Modifier.padding(16.dp), verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("图标包", style=MaterialTheme.typography.labelMedium); Text(state.iconPack?.displayName ?: "尚未选择", style=MaterialTheme.typography.titleMedium); state.iconPack?.let { Text("${it.mappings.size} mappings · 匹配 ${state.matchedCount} / ${state.launcherActivityCount}", style=MaterialTheme.typography.bodySmall) } }; TextButton(select){Text(if(state.iconPack==null)"选择" else "更换")} } }
-@Composable private fun IconPackScreen(state: ConverterUiState, setStyle: (IconPackStyle) -> Unit, modifier: Modifier) {
+@Composable private fun SourceCard(state: ConverterUiState, select: () -> Unit, manage: () -> Unit) = Card(Modifier.fillMaxWidth().padding(16.dp)) { Row(Modifier.padding(16.dp), verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("图标包", style=MaterialTheme.typography.labelMedium); Text(state.iconPack?.displayName ?: "尚未选择", style=MaterialTheme.typography.titleMedium); state.iconPack?.let { Text("${it.entries.size} icons · 匹配 ${state.matchedCount} / ${state.launcherActivityCount}", style=MaterialTheme.typography.bodySmall) } }; TextButton(select){Text(if(state.iconPack==null)"导入" else "更换")}; TextButton(manage, enabled = state.iconPacks.isNotEmpty()){Text("管理")} } }
+@Composable private fun IconPackScreen(state: ConverterUiState, setStyle: (IconPackStyle) -> Unit, openPicker: (InstalledApp) -> Unit, restoreAutomatic: (String) -> Unit, modifier: Modifier) {
     var shapeSheet by remember { mutableStateOf(false) }
     Column(modifier.padding(horizontal=8.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp, vertical=8.dp)) { FilterChip(selected=false, onClick={shapeSheet=true}, label={Text(shapeLabel(state.iconPackStyle.shape))}) }
         if(state.iconPack==null) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("选择图标包 APK")}
-        else LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), contentPadding=PaddingValues(8.dp), verticalArrangement=Arrangement.spacedBy(12.dp), horizontalArrangement=Arrangement.spacedBy(8.dp)) { items(state.matches, key={componentPreviewKey(it.app.packageName,it.app.launcherActivity)}) { match -> val key=componentPreviewKey(match.app.packageName,match.app.launcherActivity); Column(horizontalAlignment=Alignment.CenterHorizontally) { CachedPreview(state.iconPreviews.target[key] ?: state.iconPreviews.original[key], "最终图标", 80.dp); Text(match.app.label,maxLines=1,overflow=TextOverflow.Ellipsis,textAlign=TextAlign.Center,style=MaterialTheme.typography.labelMedium); if(match.status==com.wikiglobal.iconconverter.model.MatchStatus.UNMATCHED) Text("未匹配",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.outline) } } }
+        else LazyVerticalGrid(GridCells.Fixed(3), Modifier.fillMaxSize(), contentPadding=PaddingValues(8.dp), verticalArrangement=Arrangement.spacedBy(12.dp), horizontalArrangement=Arrangement.spacedBy(8.dp)) { items(state.matches, key={componentPreviewKey(it.app.packageName,it.app.launcherActivity)}) { match -> val key=componentPreviewKey(match.app.packageName,match.app.launcherActivity); Column(Modifier.clickable { openPicker(match.app) }, horizontalAlignment=Alignment.CenterHorizontally) { CachedPreview(state.iconPreviews.target[key] ?: state.iconPreviews.original[key], "最终图标", 80.dp); Text(match.app.label,maxLines=1,overflow=TextOverflow.Ellipsis,textAlign=TextAlign.Center,style=MaterialTheme.typography.labelMedium); Text(if(match.assignmentType == com.wikiglobal.iconconverter.model.IconAssignmentType.MANUAL) "手动选择" else if(match.drawableName != null) "自动匹配" else "未匹配",style=MaterialTheme.typography.labelSmall,color=if(match.drawableName == null) MaterialTheme.colorScheme.outline else LocalContentColor.current); if(match.assignmentType == com.wikiglobal.iconconverter.model.IconAssignmentType.MANUAL) TextButton({ restoreAutomatic(match.app.packageName) }) { Text("恢复自动图标", style=MaterialTheme.typography.labelSmall) } } } }
     }
     if(shapeSheet) SharedShapeSheet(state.iconPackStyle.shape, { setStyle(state.iconPackStyle.copy(shape=it)); shapeSheet=false }, { shapeSheet=false })
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun IconPickerSheet(state: ConverterUiState, app: InstalledApp, selectPack: (String) -> Unit, search: (String) -> Unit, choose: (IconEntry) -> Unit, dismiss: () -> Unit) = ModalBottomSheet(onDismissRequest=dismiss) {
+    Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
+        Text("为 ${app.label} 选择图标", style=MaterialTheme.typography.titleLarge)
+        Text(app.packageName, style=MaterialTheme.typography.bodySmall)
+        var packMenu by remember { mutableStateOf(false) }
+        val pickerPack = state.iconPacks.firstOrNull { it.id == state.pickerIconPackId }
+        Box {
+            TextButton({ packMenu = true }, enabled = state.iconPacks.size > 1) { Text("当前图标包：${pickerPack?.displayName ?: "未选择"} ▼") }
+            DropdownMenu(expanded = packMenu, onDismissRequest = { packMenu = false }) {
+                state.iconPacks.forEach { pack -> DropdownMenuItem(text = { Text(pack.displayName) }, onClick = { selectPack(pack.id); packMenu = false }) }
+            }
+        }
+        OutlinedTextField(state.iconSearchQuery, search, Modifier.fillMaxWidth().padding(vertical=8.dp), singleLine=true, label={Text("搜索 App、包名或资源名")})
+        if (state.iconSearchResults.isEmpty()) Text("没有结果；清空搜索框可浏览全部图标", Modifier.padding(vertical=12.dp))
+        LazyVerticalGrid(GridCells.Fixed(4), Modifier.fillMaxWidth().heightIn(max=520.dp), contentPadding=PaddingValues(bottom=24.dp), verticalArrangement=Arrangement.spacedBy(10.dp), horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            items(state.iconSearchResults, key={it.iconPackId + ":" + it.resourceType + "/" + it.resourceName + ":" + it.resourceIdentifier}) { entry ->
+                IconEntryTile(entry, state.iconPacks.firstOrNull { it.id == entry.iconPackId }, choose)
+            }
+        }
+    }
+}
+
+@Composable private fun IconEntryTile(entry: IconEntry, pack: com.wikiglobal.iconconverter.model.IconPack?, choose: (IconEntry) -> Unit) {
+    var bitmap by remember(entry.iconPackId, entry.resourceType, entry.resourceName, entry.resourceIdentifier) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(entry.iconPackId, entry.resourceType, entry.resourceName, entry.resourceIdentifier) {
+        bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            pack?.let { source ->
+                (source.resourceLoader?.invoke(entry.resourceIdentifier) ?: source.drawableLoader(entry.resourceName))?.let { PreviewBitmapPipeline.rasterizeIcon(it) }
+            }
+        }
+    }
+    Column(Modifier.clickable { choose(entry) }, horizontalAlignment=Alignment.CenterHorizontally) {
+        CachedPreview(bitmap, entry.resourceName, 56.dp)
+        Text("${entry.resourceType}/${entry.resourceName}", maxLines=1, overflow=TextOverflow.Ellipsis, style=MaterialTheme.typography.labelSmall)
+        entry.mappedPackageNames.firstOrNull()?.let { Text(it.substringAfterLast('.'), maxLines=1, overflow=TextOverflow.Ellipsis, style=MaterialTheme.typography.labelSmall) }
+    }
+}
+
+@Composable private fun IconPackManagementDialog(state: ConverterUiState, setActive: (String) -> Unit, delete: (String) -> Unit, dismiss: () -> Unit) = AlertDialog(
+    onDismissRequest=dismiss, title={Text("图标包管理")},
+    text={Column { state.iconPacks.forEach { pack -> Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) { RadioButton(state.activeIconPackId == pack.id, { setActive(pack.id) }); Column(Modifier.weight(1f)) { Text(pack.displayName); Text("${pack.packageName} · ${pack.entries.size} icons", style=MaterialTheme.typography.bodySmall) }; TextButton({ delete(pack.id) }) { Text("删除") } } } }},
+    confirmButton={TextButton(dismiss){Text("完成")}}
+)
 @Composable private fun MaterialYouScreen(state: ConverterUiState, generate: () -> Unit, setOverride: (String, MaterialSourceOverride) -> Unit, exportReport: () -> Unit, setStyle: (MaterialStyle) -> Unit, modifier: Modifier) {
     var selectedKey by remember { mutableStateOf<String?>(null) }
     val selected = state.matches.firstOrNull { it.app.packageName + "#" + it.app.launcherActivity == selectedKey }

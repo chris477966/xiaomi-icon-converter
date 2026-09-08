@@ -54,7 +54,14 @@ import com.wikiglobal.iconconverter.hyperos.MaterialInstalledState
 import com.wikiglobal.iconconverter.hyperos.AutoRecolorStatus
 import com.wikiglobal.iconconverter.hyperos.MaterialPreviewRefreshPolicy
 import com.wikiglobal.iconconverter.hyperos.SystemMonetChangeNotifier
+import com.wikiglobal.iconconverter.iconpack.AppIconAssignmentStore
+import com.wikiglobal.iconconverter.iconpack.IconAssignmentResolver
+import com.wikiglobal.iconconverter.iconpack.IconPackIndex
+import com.wikiglobal.iconconverter.iconpack.IconPackProvider
 import com.wikiglobal.iconconverter.matcher.IconMatcher
+import com.wikiglobal.iconconverter.model.AppIconAssignment
+import com.wikiglobal.iconconverter.model.IconAssignmentType
+import com.wikiglobal.iconconverter.model.IconEntry
 import com.wikiglobal.iconconverter.model.IconMatch
 import com.wikiglobal.iconconverter.model.IconPack
 import com.wikiglobal.iconconverter.model.MatchStatus
@@ -112,7 +119,13 @@ private data class AppliedThemeResult(val plan: ThemeApplicationPlan, val archiv
 data class ConverterUiState(
     val loading: Boolean = true,
     val iconPack: IconPack? = null,
+    val iconPacks: List<IconPack> = emptyList(),
+    val activeIconPackId: String? = null,
     val matches: List<IconMatch> = emptyList(),
+    val iconPickerApp: com.wikiglobal.iconconverter.model.InstalledApp? = null,
+    val pickerIconPackId: String? = null,
+    val iconSearchQuery: String = "",
+    val iconSearchResults: List<IconEntry> = emptyList(),
     val iconPreviews: IconPackPreviewBitmaps = IconPackPreviewBitmaps(),
     val launcherActivityCount: Int = 0,
     val uniquePackageCount: Int = 0,
@@ -139,7 +152,8 @@ data class ConverterUiState(
 }
 
 class IconConverterViewModel(application: Application) : AndroidViewModel(application) {
-    private val parser = IconPackParser(application)
+    private val iconPackProvider = IconPackProvider(application)
+    private val assignmentStore = AppIconAssignmentStore(application)
     private val appsRepository = InstalledAppsRepository(application)
     private val rootExecutor = SuThemeRootExecutor()
     private val rawIconResolver = RawAppIconResolver(application)
@@ -322,8 +336,67 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     fun updateIconPackStyle(style: IconPackStyle) = viewModelScope.launch {
         iconPackStyleStore.set(style)
         val snapshot = _uiState.value
-        val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(snapshot.matches, snapshot.iconPack, style.shape) }
+        val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(snapshot.matches, snapshot.iconPack, style.shape, snapshot.iconPacks.associateBy { it.id }) }
         _uiState.value = _uiState.value.copy(iconPackStyle = style, iconPreviews = previews, message = "已按新形状重新渲染图标包预览")
+    }
+
+    fun openIconPicker(app: com.wikiglobal.iconconverter.model.InstalledApp) {
+        val state = _uiState.value
+        val pack = state.iconPack ?: return
+        val pickerPack = state.iconPacks.firstOrNull { it.id == state.activeIconPackId } ?: pack
+        _uiState.value = state.copy(iconPickerApp = app, pickerIconPackId = pickerPack.id, iconSearchQuery = app.label, iconSearchResults = IconPackIndex.search(pickerPack.entries, app.label, app))
+    }
+
+    fun closeIconPicker() { _uiState.value = _uiState.value.copy(iconPickerApp = null, pickerIconPackId = null) }
+
+    fun selectPickerIconPack(iconPackId: String) {
+        val state = _uiState.value
+        val app = state.iconPickerApp ?: return
+        val pack = state.iconPacks.firstOrNull { it.id == iconPackId } ?: return
+        _uiState.value = state.copy(pickerIconPackId = pack.id, iconSearchQuery = app.label, iconSearchResults = IconPackIndex.search(pack.entries, app.label, app))
+    }
+
+    fun searchIcons(query: String) {
+        val state = _uiState.value
+        val app = state.iconPickerApp ?: return
+        val pack = state.iconPacks.firstOrNull { it.id == state.pickerIconPackId } ?: state.iconPack ?: return
+        _uiState.value = state.copy(iconSearchQuery = query, iconSearchResults = IconPackIndex.search(pack.entries, query, app))
+    }
+
+    fun chooseIcon(entry: IconEntry) {
+        val state = _uiState.value
+        val app = state.iconPickerApp ?: return
+        val pack = state.iconPacks.firstOrNull { it.id == entry.iconPackId } ?: state.iconPack ?: return
+        val assignment = AppIconAssignment(app.packageName, pack.id, entry.resourceName, IconAssignmentType.MANUAL, resourceIdentifier = entry.resourceIdentifier)
+        assignmentStore.save(assignment)
+        recomputeMatches(state.copy(iconPickerApp = null), state.matches.map { it.app }, state.iconPacks, state.activeIconPackId ?: pack.id)
+    }
+
+    fun restoreAutomaticIcon(appIdentifier: String) {
+        assignmentStore.remove(appIdentifier)
+        val state = _uiState.value
+        recomputeMatches(state, state.matches.map { it.app }, state.iconPacks, state.activeIconPackId)
+    }
+
+    fun setActiveIconPack(id: String) {
+        iconPackProvider.setActiveId(id)
+        val state = _uiState.value
+        recomputeMatches(state, state.matches.map { it.app }, state.iconPacks, id)
+    }
+
+    fun deleteIconPack(id: String) {
+        viewModelScope.launch {
+            val previous = _uiState.value
+            val remaining = previous.iconPacks.filterNot { it.id == id }
+            val active = if (previous.activeIconPackId == id) remaining.firstOrNull()?.id else previous.activeIconPackId?.takeIf { value -> remaining.any { it.id == value } }
+            withContext(Dispatchers.IO) {
+                assignmentStore.removeForPack(id)
+                iconPackProvider.delete(id)
+                active?.let(iconPackProvider::setActiveId)
+            }
+            val state = _uiState.value.copy(iconPacks = remaining, iconPack = remaining.firstOrNull { it.id == active }, activeIconPackId = active, iconPickerApp = null)
+            recomputeMatches(state, state.matches.map { it.app }, remaining, active)
+        }
     }
 
     /**
@@ -422,59 +495,74 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
 
     private fun reloadApps() = viewModelScope.launch {
         val apps = withContext(Dispatchers.IO) { appsRepository.launcherApps() }
-        val matches = apps.map { IconMatch(it, MatchStatus.UNMATCHED, com.wikiglobal.iconconverter.model.MatchConfidence.NONE) }
-        val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(matches, null, iconPackStyleStore.get().shape) }
-        _uiState.value = _uiState.value.copy(
-            loading = false,
-            iconPackStyle = iconPackStyleStore.get(),
-            launcherActivityCount = apps.size,
-            uniquePackageCount = apps.map { it.packageName }.distinct().size,
-            matches = matches,
-            iconPreviews = previews
-        )
+        val packs = withContext(Dispatchers.IO) { assignmentStore.loadAll(); iconPackProvider.loadPersisted() }
+        val activeId = iconPackProvider.activeId()?.takeIf { id -> packs.any { it.id == id } } ?: packs.firstOrNull()?.id
+        val state = _uiState.value.copy(iconPackStyle = iconPackStyleStore.get(), iconPacks = packs, activeIconPackId = activeId)
+        recomputeMatches(state, apps, packs, activeId)
     }
 
     fun selectApk(uri: Uri) = viewModelScope.launch {
         _uiState.value = _uiState.value.copy(loading = true, message = null)
         runCatching {
             withContext(Dispatchers.IO) {
-                val pack = parser.parse(uri)
+                assignmentStore.loadAll()
+                val pack = iconPackProvider.import(uri)
                 val apps = appsRepository.launcherApps()
-                Triple(pack, apps, IconMatcher.match(apps, pack.mappings, pack.calendars))
+                Triple(pack, apps, iconPackProvider.loadedPacks())
             }
-        }.onSuccess { (pack, apps, matches) ->
+        }.onSuccess { (pack, apps, packs) ->
             viewModelScope.launch {
-                val style = iconPackStyleStore.get()
-                val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(matches, pack, style.shape) }
-            _uiState.value = _uiState.value.copy(
-                loading = false,
-                iconPack = pack,
-                matches = matches,
-                iconPreviews = previews,
-                launcherActivityCount = apps.size,
-                uniquePackageCount = apps.map { it.packageName }.distinct().size,
-                monet = MonetUiState(),
-                iconPackStyle = style,
-                message = null
-            )
+                recomputeMatches(_uiState.value.copy(loading = false, iconPacks = packs, activeIconPackId = pack.id, monet = MonetUiState()), apps, packs, pack.id)
             }
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "解析 APK 失败")
         }
     }
 
+    private fun recomputeMatches(base: ConverterUiState, apps: List<com.wikiglobal.iconconverter.model.InstalledApp>, packs: List<IconPack>, activeId: String?) {
+        viewModelScope.launch {
+            val active = packs.firstOrNull { it.id == activeId }
+            val enriched = active?.let { IconPackIndex.enrich(it, apps) }
+            val normalizedPacks = packs.map { pack -> if (pack.id == enriched?.id) enriched else IconPackIndex.enrich(pack, apps) }
+            val assignments = assignmentStore.all().map { assignment ->
+                val source = normalizedPacks.firstOrNull { it.id == assignment.iconPackId }
+                if (source == null || source.entries.none { it.resourceName == assignment.resourceName && (assignment.resourceIdentifier == 0 || it.resourceIdentifier == assignment.resourceIdentifier) }) assignment.copy(sourceAvailable = false).also(assignmentStore::save) else assignment
+            }.associateBy { it.appIdentifier }
+            val legacy = if (enriched == null) apps.map { IconMatch(it, MatchStatus.UNMATCHED, com.wikiglobal.iconconverter.model.MatchConfidence.NONE) }
+                else IconMatcher.match(apps, enriched.mappings, enriched.calendars)
+            val matches = if (enriched == null) legacy else legacy.map { match ->
+                IconAssignmentResolver.resolve(match.app, enriched, normalizedPacks.associateBy { it.id }, assignments, match)
+            }
+            val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(matches, enriched, base.iconPackStyle.shape, normalizedPacks.associateBy { it.id }) }
+            val pickerApp = base.iconPickerApp
+            val pickerId = base.pickerIconPackId?.takeIf { id -> normalizedPacks.any { it.id == id } } ?: enriched?.id
+            val pickerPack = normalizedPacks.firstOrNull { it.id == pickerId }
+            _uiState.value = base.copy(
+                loading = false, iconPack = enriched, iconPacks = normalizedPacks, activeIconPackId = enriched?.id,
+                pickerIconPackId = pickerId,
+                matches = matches, iconPreviews = previews,
+                launcherActivityCount = apps.size, uniquePackageCount = apps.map { it.packageName }.distinct().size,
+                iconSearchResults = pickerApp?.let { IconPackIndex.search(pickerPack?.entries.orEmpty(), base.iconSearchQuery, it) }.orEmpty()
+            )
+        }
+    }
+
     /** Runs once after app/pack changes; no Lazy item may load or rasterize a Drawable. */
-    private fun prepareIconPackPreviews(matches: List<IconMatch>, pack: IconPack?, shape: IconShape): IconPackPreviewBitmaps {
+    private fun prepareIconPackPreviews(matches: List<IconMatch>, pack: IconPack?, shape: IconShape, packs: Map<String, IconPack> = emptyMap()): IconPackPreviewBitmaps {
         val original = linkedMapOf<String, android.graphics.Bitmap>()
         val target = linkedMapOf<String, android.graphics.Bitmap>()
         matches.forEach { match ->
             val key = componentPreviewKey(match.app.packageName, match.app.launcherActivity)
             original[key] = PreviewBitmapPipeline.rasterizeIcon(match.app.originalIcon)
-            match.drawableName?.let { name -> pack?.drawableLoader?.invoke(name) }
+            val sourcePack = packs[match.sourceIconPackId] ?: pack
+            match.drawableName?.let { name -> sourcePack?.let { packForMatch -> loadDrawable(packForMatch, match, name) } }
                 ?.let { target[key] = AdaptiveIconPackRenderer.renderBitmap(it, shape, PreviewBitmapPipeline.ICON_PACK_PREVIEW_SIZE) }
         }
         return IconPackPreviewBitmaps(original, target)
     }
+
+    private fun loadDrawable(pack: IconPack, match: IconMatch, name: String): android.graphics.drawable.Drawable? =
+        if (match.resourceIdentifier != 0) pack.resourceLoader?.invoke(match.resourceIdentifier) ?: pack.drawableLoader(name) else pack.drawableLoader(name)
 
     fun generateTo(uri: Uri) = viewModelScope.launch {
         val state = _uiState.value; val pack = state.iconPack ?: return@launch
@@ -484,7 +572,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 val named = state.matches.filter { it.drawableName != null && it.status != MatchStatus.CONFLICT }
                 val packageDrawableCounts = named.groupBy { it.app.packageName }.mapValues { (_, values) -> values.mapNotNull { it.drawableName }.distinct().size }
                 val entries = named.mapNotNull { match ->
-                    pack.drawableLoader(match.drawableName!!)?.let { drawable ->
+                    val sourcePack = state.iconPacks.firstOrNull { it.id == match.sourceIconPackId } ?: pack
+                    loadDrawable(sourcePack, match, match.drawableName!!)?.let { drawable ->
                         XiaomiIconEntry(match.app.packageName, match.app.launcherActivity, IconRenderer.renderPng(drawable), packageDrawableCounts.getValue(match.app.packageName) > 1)
                     }
                 }
@@ -527,7 +616,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val base = session.backup // Full apply always starts from the managed original, never the last transformed archive.
             val profile = HyperOsThemeProfileDetector.detect(base)
             val rendered = state.matches.filter { it.drawableName != null && it.status != MatchStatus.CONFLICT }.mapNotNull { match ->
-                pack.drawableLoader(match.drawableName!!)?.let { drawable -> Triple(match, match.drawableName, AdaptiveIconPackRenderer.renderPng(drawable, state.iconPackStyle.shape, profile.staticIconSize)) }
+                val sourcePack = state.iconPacks.firstOrNull { it.id == match.sourceIconPackId } ?: pack
+                loadDrawable(sourcePack, match, match.drawableName!!)?.let { drawable -> Triple(match, match.drawableName, AdaptiveIconPackRenderer.renderPng(drawable, state.iconPackStyle.shape, profile.staticIconSize)) }
             }
             val plan = themedReplacements(base, rendered.map { it.first to it.third })
             check(plan.entryConflicts.isEmpty()) { "ENTRY_CONFLICT: ${plan.entryConflicts.joinToString { it.entryName }}" }
