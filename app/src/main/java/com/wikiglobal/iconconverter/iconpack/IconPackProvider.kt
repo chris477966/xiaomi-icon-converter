@@ -55,7 +55,8 @@ class IconPackProvider(private val context: Context) {
                 val parsed = parser.parseApk(file)
                 val signature = sha256(file)
                 val pack = if (signature == item.optString("signature") && item.has("entries")) {
-                    parsed.copy(entries = readEntries(item.getJSONArray("entries"), parsed.id))
+                    val entries = readEntries(item.getJSONArray("entries"), parsed.id)
+                    parsed.copy(entries = entries, diagnostics = parsed.diagnostics.copy(entryCount = entries.size, resolvedResourceCount = entries.size))
                 } else {
                     saveCatalog(parsed, file)
                     parsed

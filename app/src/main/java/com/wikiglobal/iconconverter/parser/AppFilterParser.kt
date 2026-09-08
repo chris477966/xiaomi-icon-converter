@@ -28,7 +28,7 @@ object AppFilterParser {
             when (tag) {
                 "item" -> {
                     val component = parseComponent(element.attr("component"))
-                    val drawable = element.attr("drawable")?.trim()
+                    val drawable = element.attr("drawable")?.normalizedDrawableName()
                     if (component != null && !drawable.isNullOrBlank()) mappings += IconMapping(component, drawable)
                 }
                 "calendar" -> {
@@ -64,6 +64,11 @@ object AppFilterParser {
         attributes.item(i).let { attribute ->
             attribute.nodeName.takeIf { it.startsWith("img", true) || it.equals("drawable", true) }?.let { attribute.nodeValue }
         }
+    }
+
+    private fun String.normalizedDrawableName(): String {
+        val value = trim().removePrefix("@")
+        return value.substringAfterLast('/').substringBeforeLast('.').removeSuffix(".9")
     }
 }
 

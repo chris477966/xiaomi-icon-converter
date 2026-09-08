@@ -3,6 +3,7 @@ package com.wikiglobal.iconconverter.ui
 import android.app.Application
 import android.net.Uri
 import android.graphics.drawable.AdaptiveIconDrawable
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.wikiglobal.iconconverter.compiler.XiaomiIconCompiler
@@ -129,6 +130,8 @@ data class ConverterUiState(
     val iconPreviews: IconPackPreviewBitmaps = IconPackPreviewBitmaps(),
     val launcherActivityCount: Int = 0,
     val uniquePackageCount: Int = 0,
+    val iconPackMappedMatchCount: Int = 0,
+    val iconPackResolvedMatchCount: Int = 0,
     val diagnosticReport: ThemeCompatibilityReport? = null,
     val diagnosticRunning: Boolean = false,
     val diagnosticMessage: String? = null,
@@ -145,6 +148,7 @@ data class ConverterUiState(
     val lastApplyRoutes: List<ThemeRouteDiagnostic> = emptyList(),
     val message: String? = null
 ) {
+    /** Legacy/appfilter mapping matches; this does not prove that an IconEntry/resource exists. */
     val matchedCount get() = matches.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
     val unmatchedCount get() = matches.count { it.status == MatchStatus.UNMATCHED }
     val conflictCount get() = matches.count { it.status == MatchStatus.CONFLICT }
@@ -344,7 +348,9 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val state = _uiState.value
         val pack = state.iconPack ?: return
         val pickerPack = state.iconPacks.firstOrNull { it.id == state.activeIconPackId } ?: pack
-        _uiState.value = state.copy(iconPickerApp = app, pickerIconPackId = pickerPack.id, iconSearchQuery = app.label, iconSearchResults = IconPackIndex.search(pickerPack.entries, app.label, app))
+        val results = IconPackIndex.search(pickerPack.entries, app.label, app)
+        logPickerSearch(pickerPack, app, app.label, results)
+        _uiState.value = state.copy(iconPickerApp = app, pickerIconPackId = pickerPack.id, iconSearchQuery = app.label, iconSearchResults = results)
     }
 
     fun closeIconPicker() { _uiState.value = _uiState.value.copy(iconPickerApp = null, pickerIconPackId = null) }
@@ -353,14 +359,18 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val state = _uiState.value
         val app = state.iconPickerApp ?: return
         val pack = state.iconPacks.firstOrNull { it.id == iconPackId } ?: return
-        _uiState.value = state.copy(pickerIconPackId = pack.id, iconSearchQuery = app.label, iconSearchResults = IconPackIndex.search(pack.entries, app.label, app))
+        val results = IconPackIndex.search(pack.entries, app.label, app)
+        logPickerSearch(pack, app, app.label, results)
+        _uiState.value = state.copy(pickerIconPackId = pack.id, iconSearchQuery = app.label, iconSearchResults = results)
     }
 
     fun searchIcons(query: String) {
         val state = _uiState.value
         val app = state.iconPickerApp ?: return
         val pack = state.iconPacks.firstOrNull { it.id == state.pickerIconPackId } ?: state.iconPack ?: return
-        _uiState.value = state.copy(iconSearchQuery = query, iconSearchResults = IconPackIndex.search(pack.entries, query, app))
+        val results = IconPackIndex.search(pack.entries, query, app)
+        logPickerSearch(pack, app, query, results)
+        _uiState.value = state.copy(iconSearchQuery = query, iconSearchResults = results)
     }
 
     fun chooseIcon(entry: IconEntry) {
@@ -512,7 +522,9 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             }
         }.onSuccess { (pack, apps, packs) ->
             viewModelScope.launch {
-                recomputeMatches(_uiState.value.copy(loading = false, iconPacks = packs, activeIconPackId = pack.id, monet = MonetUiState()), apps, packs, pack.id)
+                val diagnosticMessage = pack.diagnostics.takeIf { it.resourceIndexFailed }
+                    ?.let { "图标包映射已读取，但图标资源索引失败（${it.summary}）" }
+                recomputeMatches(_uiState.value.copy(loading = false, iconPacks = packs, activeIconPackId = pack.id, monet = MonetUiState(), message = diagnosticMessage), apps, packs, pack.id)
             }
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(loading = false, message = error.message ?: "解析 APK 失败")
@@ -533,6 +545,12 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             val matches = if (enriched == null) legacy else legacy.map { match ->
                 IconAssignmentResolver.resolve(match.app, enriched, normalizedPacks.associateBy { it.id }, assignments, match)
             }
+            val mappedMatchCount = legacy.count { it.status != MatchStatus.UNMATCHED && it.status != MatchStatus.CONFLICT }
+            val resolvedMatchCount = legacy.count { legacyMatch ->
+                val name = legacyMatch.drawableName ?: return@count false
+                enriched?.entries?.any { it.resourceName == name } == true
+            }
+            Log.i("IconPackRuntime", "pack=${enriched?.packageName ?: "none"} mappingMatches=$mappedMatchCount/${apps.size} resourceMatches=$resolvedMatchCount/${apps.size} entries=${enriched?.entries?.size ?: 0} mappings=${enriched?.mappings?.size ?: 0}")
             val previews = withContext(Dispatchers.Default) { prepareIconPackPreviews(matches, enriched, base.iconPackStyle.shape, normalizedPacks.associateBy { it.id }) }
             val pickerApp = base.iconPickerApp
             val pickerId = base.pickerIconPackId?.takeIf { id -> normalizedPacks.any { it.id == id } } ?: enriched?.id
@@ -542,9 +560,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 pickerIconPackId = pickerId,
                 matches = matches, iconPreviews = previews,
                 launcherActivityCount = apps.size, uniquePackageCount = apps.map { it.packageName }.distinct().size,
+                iconPackMappedMatchCount = mappedMatchCount, iconPackResolvedMatchCount = resolvedMatchCount,
                 iconSearchResults = pickerApp?.let { IconPackIndex.search(pickerPack?.entries.orEmpty(), base.iconSearchQuery, it) }.orEmpty()
             )
         }
+    }
+
+    private fun logPickerSearch(pack: IconPack, app: com.wikiglobal.iconconverter.model.InstalledApp, query: String, results: List<IconEntry>) {
+        Log.i("IconPackRuntime", "picker pack=${pack.packageName} app=${app.label} package=${app.packageName} entries=${pack.entries.size} query=$query results=${results.size} top=${results.take(10).joinToString { it.resourceName }}")
     }
 
     /** Runs once after app/pack changes; no Lazy item may load or rasterize a Drawable. */

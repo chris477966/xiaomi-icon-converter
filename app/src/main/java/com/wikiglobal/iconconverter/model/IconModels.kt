@@ -30,6 +30,24 @@ data class IconEntry(
     val searchableKeywords: Set<String> = emptySet()
 )
 
+data class IconPackParseDiagnostics(
+    val appFilterPresent: Boolean = false,
+    val mappingCount: Int = 0,
+    val calendarMappingCount: Int = 0,
+    val drawableXmlPresent: Boolean = false,
+    val drawableXmlIconCount: Int = 0,
+    val iconPackXmlPresent: Boolean = false,
+    val iconPackXmlIconCount: Int = 0,
+    val zipCandidateCount: Int = 0,
+    val resolvedResourceCount: Int = 0,
+    val entryCount: Int = 0,
+    val errors: List<String> = emptyList()
+) {
+    val resourceIndexFailed: Boolean get() = mappingCount > 0 && entryCount == 0
+    val summary: String
+        get() = "mapping=$mappingCount, calendar=$calendarMappingCount, drawable.xml=$drawableXmlIconCount, iconpack.xml=$iconPackXmlIconCount, zip=$zipCandidateCount, resolved=$resolvedResourceCount, entries=$entryCount"
+}
+
 data class AppIconAssignment(
     val appIdentifier: String,
     val iconPackId: String,
@@ -51,7 +69,8 @@ data class IconPack(
     val versionName: String? = null,
     val versionCode: Long? = null,
     val entries: List<IconEntry> = emptyList(),
-    val resourceLoader: ((Int) -> Drawable?)? = null
+    val resourceLoader: ((Int) -> Drawable?)? = null,
+    val diagnostics: IconPackParseDiagnostics = IconPackParseDiagnostics()
 )
 
 data class InstalledApp(
