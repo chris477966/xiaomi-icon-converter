@@ -71,6 +71,9 @@ import com.wikiglobal.iconconverter.autoadapt.AutoAdaptSettingsStore
 import com.wikiglobal.iconconverter.autoadapt.AutoAdaptSummary
 import com.wikiglobal.iconconverter.autoadapt.SelectedIconPackMetadata
 import com.wikiglobal.iconconverter.autoadapt.SelectedIconPackStore
+import com.wikiglobal.iconconverter.autoadapt.WorkManagerAutoAdaptScheduler
+import com.wikiglobal.iconconverter.autoadapt.PendingPackageStore
+import com.wikiglobal.iconconverter.autoadapt.AutoAdaptDisableController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -633,7 +636,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             .onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "导出失败") }
     }
 
-    fun setAutoAdaptEnabled(enabled: Boolean) { autoAdaptSettingsStore.setEnabled(enabled); _uiState.value = _uiState.value.copy(autoAdaptEnabled = enabled) }
+    fun setAutoAdaptEnabled(enabled: Boolean) { autoAdaptSettingsStore.setEnabled(enabled); if (!enabled) AutoAdaptDisableController(PendingPackageStore(getApplication()),WorkManagerAutoAdaptScheduler(getApplication())).disable(); _uiState.value = _uiState.value.copy(autoAdaptEnabled = enabled) }
     fun refreshAutoAdaptSummary() { _uiState.value = _uiState.value.copy(autoAdaptSummary = autoAdaptDryRunStore.summary()) }
     fun exportAutoAdaptReport(uri: Uri) = viewModelScope.launch {
         val report = autoAdaptDryRunStore.report() ?: return@launch
