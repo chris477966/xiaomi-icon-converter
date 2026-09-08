@@ -8,14 +8,37 @@ android {
     namespace = "com.wikiglobal.iconconverter"
     compileSdk = 35
 
+    val releaseStoreFile = System.getenv("XIAOMI_ICON_RELEASE_STORE_FILE")
+    val releaseStorePassword = System.getenv("XIAOMI_ICON_RELEASE_STORE_PASSWORD")
+    val releaseKeyAlias = System.getenv("XIAOMI_ICON_RELEASE_KEY_ALIAS")
+    val releaseKeyPassword = System.getenv("XIAOMI_ICON_RELEASE_KEY_PASSWORD")
+
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null) {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.wikiglobal.iconconverter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
+        versionCode = 17
         versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
