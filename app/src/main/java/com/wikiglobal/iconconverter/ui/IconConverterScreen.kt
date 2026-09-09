@@ -1,5 +1,10 @@
 package com.wikiglobal.iconconverter.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -39,7 +44,10 @@ import com.wikiglobal.iconconverter.model.InstalledApp
 @Composable fun IconConverterScreen(state: ConverterUiState, onSelect: () -> Unit, onOpenPicker: (InstalledApp) -> Unit, onClosePicker: () -> Unit, onPickerPack: (String) -> Unit, onSearchIcons: (String) -> Unit, onChooseIcon: (IconEntry) -> Unit, onRestoreAutomatic: (String) -> Unit, onSetActivePack: (String) -> Unit, onDeletePack: (String) -> Unit, onGenerate: () -> Unit, onCheckHyperOs: () -> Unit, onExportReport: () -> Unit, onExportRouteReport: () -> Unit, onExportMaterialReport: () -> Unit, onCheckRoot: () -> Unit, onApplyTheme: () -> Unit, onRestoreTheme: () -> Unit, onRefreshCache: () -> Unit, onForceRestart: () -> Unit, onThemeMode: (ThemeMode) -> Unit, onMonetPreview: () -> Unit, onApplyMonet: () -> Unit, onMaterialOverride: (String, MaterialSourceOverride) -> Unit, onMaterialStyle: (MaterialStyle) -> Unit, onIconPackStyle: (IconPackStyle) -> Unit, onConfirmRebase: () -> Unit, onDismissRebase: () -> Unit) {
     var tools by remember { mutableStateOf(false) }; var managePacks by remember { mutableStateOf(false) }; val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it) } }
-    Scaffold(contentWindowInsets = WindowInsets.safeDrawing, topBar = { TopAppBar(title = { Text("HyperIcon") }, actions = { IconButton({ tools = !tools }) { Text("⚙", modifier = Modifier.semantics { contentDescription = "Settings / Tools" }) } }) }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = { if (!tools) BottomAppBar { Button(if(state.rootAvailable) onApplyTheme else onCheckRoot, enabled = ((state.themeMode == ThemeMode.ICON_PACK && state.iconPack?.entries?.isNotEmpty() == true && state.matchedCount > 0) || (state.themeMode == ThemeMode.MATERIAL_YOU && state.monet.generated.isNotEmpty())) && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text(if (state.rootAvailable) "应用到 HyperOS 3" else "检查 Root 并继续") } } }) { padding ->
+    BackHandler(enabled = tools) { tools = false }
+    Scaffold(contentWindowInsets = WindowInsets.safeDrawing, topBar = { TopAppBar(title = { Text(if (tools) "设置" else "HyperIcon") }, navigationIcon = {
+        if (tools) IconButton({ tools = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+    }, actions = { if (!tools) IconButton({ tools = !tools }) { Icon(Icons.Filled.Settings, contentDescription = "设置") } }) }, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = { if (!tools) BottomAppBar { Button(if(state.rootAvailable) onApplyTheme else onCheckRoot, enabled = ((state.themeMode == ThemeMode.ICON_PACK && state.iconPack?.entries?.isNotEmpty() == true && state.matchedCount > 0) || (state.themeMode == ThemeMode.MATERIAL_YOU && state.monet.generated.isNotEmpty())) && !state.themeOperationRunning, modifier = Modifier.fillMaxWidth().padding(horizontal=16.dp)) { Text(if (state.rootAvailable) "应用到 HyperOS 3" else "检查 Root 并继续") } } }) { padding ->
         if (tools) SystemToolsScreen(Modifier.padding(padding), state, onCheckRoot, onRestoreTheme, onRefreshCache, onForceRestart, onCheckHyperOs, onExportReport, onExportRouteReport)
         else Column(Modifier.padding(padding).fillMaxSize()) {
             PrimaryTabRow(selectedTabIndex = ThemeMode.entries.indexOf(state.themeMode)) { ThemeMode.entries.forEach { mode -> Tab(selected = state.themeMode == mode, onClick = { onThemeMode(mode) }, text = { Text(if(mode == ThemeMode.ICON_PACK) "图标包" else "Material You") }) } }
@@ -109,55 +117,38 @@ import com.wikiglobal.iconconverter.model.InstalledApp
 )
 @Composable private fun MaterialYouScreen(state: ConverterUiState, generate: () -> Unit, setOverride: (String, MaterialSourceOverride) -> Unit, exportReport: () -> Unit, setStyle: (MaterialStyle) -> Unit, modifier: Modifier) {
     var selectedKey by remember { mutableStateOf<String?>(null) }
-    val selected = state.matches.firstOrNull { it.app.packageName + "#" + it.app.launcherActivity == selectedKey }
+    val selected = remember(state.matches, selectedKey) { state.matches.firstOrNull { componentPreviewKey(it.app.packageName, it.app.launcherActivity) == selectedKey } }
+    val previewCache = remember(state.monet.generationId) { MaterialPreviewBitmapCache() }
     val style = state.monet.style
     var seedDialog by remember { mutableStateOf(false) }
     var confirmFollow by remember { mutableStateOf(false) }
     var colorSheet by remember { mutableStateOf(false) }
     var shapeSheet by remember { mutableStateOf(false) }
     Box(modifier) {
-        LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=4.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        LazyVerticalGrid(GridCells.Fixed(3),Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             item(span={GridItemSpan(maxLineSpan)}) {
                 Column(Modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(8.dp), verticalAlignment=Alignment.CenterVertically) {
                         FilterChip(selected=false,onClick={colorSheet=true},label={Text(materialColorModeLabel(style.colorMode), maxLines=1, overflow=TextOverflow.Ellipsis)}, modifier=Modifier.weight(1f))
                         FilterChip(selected=false,onClick={shapeSheet=true},label={Text(shapeLabel(style.shape), maxLines=1, overflow=TextOverflow.Ellipsis)}, modifier=Modifier.weight(1f))
                     }
-                    Row(verticalAlignment=Alignment.CenterVertically) {
-                        if (style.colorMode != MaterialColorMode.CUSTOM) Checkbox(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) })
-                        if (style.colorMode != MaterialColorMode.CUSTOM) Text("壁纸变化后自动应用图标", style=MaterialTheme.typography.bodySmall)
+                    if (style.colorMode != MaterialColorMode.CUSTOM) Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+                        Text("壁纸变化后自动应用图标", Modifier.weight(1f), style=MaterialTheme.typography.bodySmall)
+                        Switch(style.followWallpaperMonet, { checked -> if (checked) confirmFollow=true else setStyle(style.copy(followWallpaperMonet=false)) })
                     }
-                    if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog=true }) { Text("选择 Seed Color") } }
+                    if (style.colorMode == MaterialColorMode.CUSTOM) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(24.dp), color=androidx.compose.ui.graphics.Color(style.customSeedColor), shape=MaterialTheme.shapes.small) {}; TextButton({ seedDialog=true }) { Text("自定义颜色") } }
                 }
             }
             item(span={GridItemSpan(maxLineSpan)}) {
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
-                        Text("Material You · ${if(state.monet.dark)"Dark" else "Light"}", Modifier.weight(1f), style=MaterialTheme.typography.titleMedium)
-                        if (state.monet.diagnostics.isNotEmpty()) IconButton(exportReport, modifier = Modifier.size(40.dp)) { Text("ⓘ", modifier = Modifier.semantics { contentDescription = "诊断" }) }
-                    }
-                    Text("颜色来源：${paletteSourceLabel(state.monet.paletteResolution)}", style=MaterialTheme.typography.labelMedium)
-                    state.monet.paletteResolution?.wallpaperColors?.let { colors ->
-                        Row(horizontalArrangement=Arrangement.spacedBy(6.dp), verticalAlignment=Alignment.CenterVertically) {
-                            PaletteSwatch(colors.primary, "主色"); PaletteSwatch(colors.secondary, "辅助色"); PaletteSwatch(colors.tertiary, "第三色")
-                        }
-                    }
-                    state.monet.palette?.let { palette -> val c=palette.colors(state.monet.dark); Text("● #${"%08X".format(c.first)}  ● #${"%08X".format(c.second)}",style=MaterialTheme.typography.labelSmall) }
-                    Text("可生成 ${state.monet.generated.size} · 保留 ${state.monet.sources.size-state.monet.generated.size}")
-                    Text("Preview target：${state.monet.previewTargetSize}px${if (state.themeProfile == null) "（Root/Profile 未检测，fallback）" else ""}", style=MaterialTheme.typography.labelSmall)
-                    Text("官方 ${state.monet.sourceCount(MonetGlyphSource.NATIVE_MONOCHROME)} · Lawnicons ${state.monet.sources.values.count { it.name.startsWith("LAWNICONS") }} · 自动单色 ${state.monet.sourceCount(MonetGlyphSource.AOSP_FORCED_MONOCHROME)}",style=MaterialTheme.typography.labelSmall)
-                    if (state.monet.paletteResolution?.fallbackUsed == true) Text("壁纸颜色暂不可用，当前使用系统配色",style=MaterialTheme.typography.labelSmall)
-                    if (state.monet.lawniconsProvider.status != LawniconsProviderStatus.READY) Text("Lawnicons Provider：${lawniconsProviderLabel(state.monet.lawniconsProvider.status)}", style=MaterialTheme.typography.labelSmall, color=MaterialTheme.colorScheme.error)
-                } }
+                MaterialStatusCard(state.monet, state.matches.size, exportReport)
             }
+            if (state.loading) item(span={GridItemSpan(maxLineSpan)}) { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if (state.monet.generated.isEmpty()) item(span={GridItemSpan(maxLineSpan)}) { Box(Modifier.fillMaxWidth().padding(vertical=16.dp),contentAlignment=Alignment.Center){Button(generate){Text("生成预览")}} }
             items(state.matches,key={componentPreviewKey(it.app.packageName,it.app.launcherActivity)},contentType={"material-app"}){match ->
                 val key=componentPreviewKey(match.app.packageName,match.app.launcherActivity)
-                Column(Modifier.height(120.dp).clickable { selectedKey=key }, horizontalAlignment=Alignment.CenterHorizontally) {
-                    if(state.monet.generated.containsKey(key)) CachedPreview(state.monet.previewBitmaps[key],"Material 预览",PreviewBitmapPipeline.MATERIAL_PREVIEW_DP.dp) else CachedPreview(state.iconPreviews.original[key],"当前",PreviewBitmapPipeline.MATERIAL_PREVIEW_DP.dp)
-                    Text(match.app.label,maxLines=1,overflow=TextOverflow.Ellipsis,textAlign=TextAlign.Center,style=MaterialTheme.typography.labelMedium)
-                    if(!state.monet.generated.containsKey(key)) Text("保留",style=MaterialTheme.typography.labelSmall)
-                }
+                MaterialAppTile(match.app.label, key, state.monet.generationId,
+                    state.monet.previewTargetSize, state.monet.generated[key],
+                    state.iconPreviews.original[key], previewCache) { selectedKey=key }
             }
         }
         if (colorSheet) MaterialColorSheet(style, { next -> setStyle(next); colorSheet=false }, { colorSheet=false }, { seedDialog=true })
@@ -184,7 +175,7 @@ import com.wikiglobal.iconconverter.model.InstalledApp
         Text("颜色来源", style=MaterialTheme.typography.titleLarge)
         ColorModeOption("壁纸自动", "使用当前桌面壁纸主色生成 Material 调色板", style.colorMode == MaterialColorMode.WALLPAPER_AUTO) { onSelect(style.copy(colorMode=MaterialColorMode.WALLPAPER_AUTO)) }
         ColorModeOption("系统配色", "使用 HyperOS / Android 当前 system_accent 配色", style.colorMode == MaterialColorMode.SYSTEM_MONET) { onSelect(style.copy(colorMode=MaterialColorMode.SYSTEM_MONET)) }
-        ColorModeOption("自定义", "手动选择 Seed Color", style.colorMode == MaterialColorMode.CUSTOM) { onSelect(style.copy(colorMode=MaterialColorMode.CUSTOM, followWallpaperMonet=false)); openSeed() }
+        ColorModeOption("自定义", "手动自定义颜色", style.colorMode == MaterialColorMode.CUSTOM) { onSelect(style.copy(colorMode=MaterialColorMode.CUSTOM, followWallpaperMonet=false)); openSeed() }
     }
 }
 
@@ -209,23 +200,19 @@ import com.wikiglobal.iconconverter.model.InstalledApp
 /** Uses the production shape renderer directly; no approximation or source discovery. */
 @Composable private fun MaterialShapePreview(shape: IconShape, palette: com.wikiglobal.iconconverter.hyperos.MonetPalette?, dark: Boolean) {
     val color = palette?.colors(dark)?.first ?: 0xffd9e2ff.toInt()
-    val bitmap = remember(shape, color) {
-        com.wikiglobal.iconconverter.hyperos.MaterialIconShapeRenderer.previewBitmap(shape, color)
+    val bitmap by produceState<android.graphics.Bitmap?>(null, shape, color) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            com.wikiglobal.iconconverter.hyperos.MaterialIconShapeRenderer.previewBitmap(shape, color)
+        }
     }
-    val image = remember(bitmap) { bitmap.asImageBitmap() }
-    Image(
-        painter = BitmapPainter(image, filterQuality = FilterQuality.High),
-        contentDescription = shapeLabel(shape),
-        modifier = Modifier.size(56.dp),
-        contentScale = ContentScale.Fit
-    )
+    CachedPreview(bitmap, shapeLabel(shape), 56.dp)
 }
 
 @Composable private fun PaletteSwatch(color: Int?, label: String) { if (color != null) Row(verticalAlignment=Alignment.CenterVertically) { Surface(Modifier.size(14.dp), color=androidx.compose.ui.graphics.Color(color), shape=MaterialTheme.shapes.small) {}; Text(label,Modifier.padding(start=3.dp),style=MaterialTheme.typography.labelSmall) } }
 private fun materialColorModeLabel(mode: MaterialColorMode) = when(mode) { MaterialColorMode.WALLPAPER_AUTO -> "壁纸自动"; MaterialColorMode.SYSTEM_MONET -> "系统配色"; MaterialColorMode.CUSTOM -> "自定义" }
 private fun paletteSourceLabel(resolution: com.wikiglobal.iconconverter.hyperos.MaterialPaletteResolution?) = when {
     resolution == null -> "未生成"
-    resolution.fallbackUsed -> "壁纸自动 → 系统配色（Fallback）"
+    resolution.fallbackUsed -> "系统配色"
     resolution.source == com.wikiglobal.iconconverter.hyperos.MaterialPaletteSource.WALLPAPER -> "壁纸自动"
     resolution.source == com.wikiglobal.iconconverter.hyperos.MaterialPaletteSource.SYSTEM_MONET -> "系统配色"
     else -> "自定义"
@@ -248,5 +235,93 @@ private fun materialSourceLabel(source: MonetGlyphSource?) = when(source) { Mone
 private fun lawniconsProviderLabel(status: LawniconsProviderStatus) = when(status) { LawniconsProviderStatus.APK_SHA_FAILED -> "APK SHA 校验失败"; LawniconsProviderStatus.APK_RESOURCES_FAILED -> "APK 资源读取失败"; LawniconsProviderStatus.GRAYSCALE_MAP_NOT_FOUND -> "未找到 grayscale map"; LawniconsProviderStatus.GRAYSCALE_MAP_PARSE_FAILED -> "grayscale map 解析失败"; LawniconsProviderStatus.EMPTY_MAP -> "grayscale map 为空"; else -> status.name }
 private fun shapeLabel(shape: IconShape) = when(shape) { IconShape.SYSTEM -> "系统"; IconShape.HYPEROS -> "HyperOS"; IconShape.CIRCLE -> "圆形"; IconShape.SQUIRCLE -> "Squircle"; IconShape.ROUNDED_SQUARE -> "圆角方形"; IconShape.SQUARE -> "方形"; IconShape.TEARDROP -> "水滴" }
 @Composable private fun SeedColorDialog(seed: Int, onConfirm: (Int) -> Unit, onDismiss: () -> Unit) { var value by remember { mutableStateOf("#%06X".format(seed and 0xFFFFFF)) }; AlertDialog(onDismissRequest=onDismiss,title={Text("自定义颜色")},text={OutlinedTextField(value,{value=it},label={Text("#RRGGBB")},singleLine=true)},confirmButton={TextButton({value.removePrefix("#").toLongOrNull(16)?.takeIf{it<=0xFFFFFF}?.let{onConfirm((0xFF000000L or it).toInt())}}){Text("应用")}},dismissButton={TextButton(onDismiss){Text("取消")}}) }
-@Composable private fun SystemToolsScreen(modifier:Modifier,state:ConverterUiState,check:()->Unit,restore:()->Unit,refresh:()->Unit,restart:()->Unit,diagnose:()->Unit,export:()->Unit,exportRoutes:()->Unit)=LazyColumn(modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){item{Text("Tools",style=MaterialTheme.typography.titleLarge)};item{Text("Root：${if(state.rootAvailable)"可用" else "未检查"}")};item{Text("当前 Theme Profile",style=MaterialTheme.typography.titleMedium)};item{Text("Ownership：${state.themeOwnership.javaClass.simpleName}\nBase SHA：${state.themeBaseSha?.take(12) ?: "—"}\nTarget icon size：${state.themeProfile?.staticIconSize ?: "—"}\nDetected static icons：${state.themeProfile?.detectedIconCount ?: "—"}\nProfile confidence：${state.themeProfile?.confidence ?: "—"}")};state.lastApplySummary?.let{s->item{Text("最近应用\n应用组件：${s.generatedComponents}\n命中当前主题 Activity：${s.existingActivityRouteComponents}\n仅 Package fallback：${s.packageOnlyComponents}\nLegacy unique alias：${s.legacyAliasComponents}\n主题条目：${s.totalReplacements}\nACTIVITY_ENTRIES_MATCHED=${s.existingActivityEntriesMatched}\nPLANNED_COMPONENTS=${s.plannedComponents}\nUNROUTED_COMPONENTS=${s.unroutedComponents}\nENTRY_CONFLICTS=${s.entryConflicts}\nPATCH_VERIFIED=${s.patchVerified}\nARCHIVE_INSTALL_VERIFIED=${s.archiveInstallVerified}\nLAUNCHER_REFRESH_STATUS=${s.launcherRefreshStatus}")}};item{Button(check,Modifier.fillMaxWidth()){Text("检查 Root")}};item{Button(restore,Modifier.fillMaxWidth(),enabled=state.rootAvailable){Text("恢复主题")}};item{Button(refresh,Modifier.fillMaxWidth(),enabled=state.rootAvailable){Text("刷新图标缓存")}};item{Button(restart,Modifier.fillMaxWidth(),enabled=state.rootAvailable,colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error)){Text("重启桌面")}};item{HorizontalDivider()};item{Button(diagnose,Modifier.fillMaxWidth()){Text("Compatibility")}};item{Button(export,Modifier.fillMaxWidth(),enabled=state.diagnosticReport!=null){Text("Diagnostic export")}};item{Button(exportRoutes,Modifier.fillMaxWidth(),enabled=state.lastApplyRoutes.isNotEmpty()){Text("导出最近应用路由")}}}
+@Composable private fun SystemToolsScreen(modifier:Modifier,state:ConverterUiState,check:()->Unit,restore:()->Unit,refresh:()->Unit,restart:()->Unit,diagnose:()->Unit,export:()->Unit,exportRoutes:()->Unit) = LazyColumn(
+    modifier.fillMaxSize(), contentPadding=PaddingValues(16.dp), verticalArrangement=Arrangement.spacedBy(8.dp)
+) {
+    item {
+        Card(Modifier.fillMaxWidth()) {
+            ListItem(headlineContent={Text("Root")}, supportingContent={Text(if (state.rootAvailable) "已授权" else "未检查")})
+            state.lastApplySummary?.let { summary ->
+                val success = summary.patchVerified && summary.archiveInstallVerified &&
+                    summary.unroutedComponents == 0 && summary.entryConflicts == 0 &&
+                    summary.launcherRefreshStatus == LauncherRefreshStatus.SUCCESS
+                Text(if (success) "最近应用：成功" else "最近应用：存在异常", Modifier.padding(start=16.dp, end=16.dp, bottom=12.dp), style=MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+    item { Text("主题维护", Modifier.padding(top=8.dp), style=MaterialTheme.typography.titleSmall) }
+    item {
+        Column {
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(check, Modifier.weight(1f)) { Text("检查 Root") }
+                OutlinedButton(restore, Modifier.weight(1f), enabled=state.rootAvailable) { Text("恢复主题") }
+            }
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(refresh, Modifier.weight(1f), enabled=state.rootAvailable) { Text("刷新图标缓存") }
+                OutlinedButton(restart, Modifier.weight(1f), enabled=state.rootAvailable) { Text("重启桌面") }
+            }
+        }
+    }
+    item { HorizontalDivider() }
+    item { Text("诊断", style=MaterialTheme.typography.titleSmall) }
+    item { TextButton(diagnose) { Text("Compatibility") } }
+    item { TextButton(export, enabled=state.diagnosticReport!=null) { Text("Diagnostic export") } }
+    item { TextButton(exportRoutes, enabled=state.lastApplyRoutes.isNotEmpty()) { Text("导出最近应用路由") } }
+}
 @Composable private fun CachedPreview(bitmap:android.graphics.Bitmap?,description:String,size:androidx.compose.ui.unit.Dp){if(bitmap!=null){val image=remember(bitmap){bitmap.asImageBitmap()};val painter=remember(image){BitmapPainter(image,filterQuality=FilterQuality.High)};Image(painter,description,Modifier.size(size),contentScale=ContentScale.Fit)}else Surface(Modifier.size(size),shape=MaterialTheme.shapes.small,tonalElevation=1.dp){Box(contentAlignment=Alignment.Center){Text("保留",style=MaterialTheme.typography.labelSmall)}}}
+
+
+@Composable private fun MaterialStatusCard(monet: MonetUiState, total: Int, exportReport: () -> Unit) {
+    val unavailable = remember(monet.sources) { monet.sources.values.count { it == MonetGlyphSource.UNAVAILABLE_LEGACY } }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+                Text("Material You · ${if (monet.dark) "Dark" else "Light"}", Modifier.weight(1f), style=MaterialTheme.typography.titleMedium)
+                if (monet.diagnostics.isNotEmpty()) IconButton(exportReport, Modifier.size(40.dp)) { Text("ⓘ", Modifier.semantics { contentDescription="诊断" }) }
+            }
+            Text("颜色来源：${if (monet.paletteResolution == null) materialColorModeLabel(monet.style.colorMode) else paletteSourceLabel(monet.paletteResolution)}", style=MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                val colors = monet.paletteResolution?.wallpaperColors
+                if (colors != null) {
+                    PaletteSwatch(colors.primary, "主色"); PaletteSwatch(colors.secondary, "辅助色"); PaletteSwatch(colors.tertiary, "第三色")
+                } else monet.palette?.colors(monet.dark)?.let { colors ->
+                    PaletteSwatch(colors.first, "主色"); PaletteSwatch(colors.second, "辅助色")
+                }
+            }
+            Text(if (monet.generated.isEmpty()) "尚未生成预览" else "已生成 ${monet.generated.size} / $total", style=MaterialTheme.typography.bodyMedium)
+            if (monet.paletteResolution?.fallbackUsed == true) Text("当前使用系统配色", style=MaterialTheme.typography.bodySmall)
+            if (monet.lawniconsProvider.status != LawniconsProviderStatus.READY && unavailable > 0) {
+                Text("部分图标无法使用扩展单色资源", style=MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable private fun MaterialAppTile(
+    label: String, componentKey: String, generationId: Long, previewTargetSize: Int,
+    png: ByteArray?, original: android.graphics.Bitmap?, cache: MaterialPreviewBitmapCache, onClick: () -> Unit
+) {
+    // Keying the state holder prevents even a single frame from displaying the previous generation.
+    key(generationId, componentKey, previewTargetSize) {
+        val bitmap by produceState<android.graphics.Bitmap?>(null, png, cache) {
+            value = png?.let { cache.preview(MaterialPreviewBitmapCache.Key(generationId, componentKey, previewTargetSize), it) }
+        }
+        Column(Modifier.height(120.dp).clickable(onClick=onClick), horizontalAlignment=Alignment.CenterHorizontally) {
+            CachedPreview(if (png == null) original else bitmap, if (png == null) "当前" else "Material 预览", PreviewBitmapPipeline.MATERIAL_PREVIEW_DP.dp)
+            Text(label, maxLines=1, overflow=TextOverflow.Ellipsis, textAlign=TextAlign.Center, style=MaterialTheme.typography.labelMedium)
+            if (png == null) Text("保留", style=MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Preview(showBackground=true, locale="zh", widthDp=393, heightDp=700)
+@Composable private fun SettingsPreview() = MaterialTheme {
+    Scaffold(topBar={ @OptIn(ExperimentalMaterial3Api::class) TopAppBar(title={Text("设置")}, navigationIcon={IconButton({}) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }}) }) { padding ->
+        SystemToolsScreen(Modifier.padding(padding), ConverterUiState(), {}, {}, {}, {}, {}, {}, {})
+    }
+}
+
+@Preview(showBackground=true, locale="zh", widthDp=393, heightDp=700)
+@Composable private fun MaterialYouPreview() = MaterialTheme {
+    MaterialYouScreen(ConverterUiState(loading=false, themeMode=ThemeMode.MATERIAL_YOU), {}, { _, _ -> }, {}, {}, Modifier.fillMaxSize())
+}

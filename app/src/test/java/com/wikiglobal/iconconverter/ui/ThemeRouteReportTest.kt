@@ -43,6 +43,18 @@ class ThemeRouteReportTest {
         assertTrue(report.contains("CURRENT_ACTIVITY_ENTRY_EXISTED=true"))
     }
 
+    @Test fun HIDDEN_SETTINGS_VERIFICATION_REMAINS_EXPORTABLE() {
+        val report = ThemeRouteReport.format(summary.copy(
+            unroutedComponents=2, entryConflicts=1, patchVerified=false,
+            archiveInstallVerified=false, launcherRefreshStatus=LauncherRefreshStatus.FAILED
+        ), listOf(route))
+        listOf("TOTAL_REPLACEMENTS=3", "ACTIVITY_ENTRIES_MATCHED=2", "UNROUTED_COMPONENTS=2",
+            "ENTRY_CONFLICTS=1", "PATCH_VERIFIED=false", "ARCHIVE_INSTALL_VERIFIED=false",
+            "LAUNCHER_REFRESH_STATUS=FAILED", "LEGACY_ALIAS_COMPONENTS=1").forEach {
+            assertTrue("Missing $it", report.contains(it))
+        }
+    }
+
     @Test fun ROUTE_REPORT_NO_PNG_BYTES() {
         val report = ThemeRouteReport.format(summary, listOf(route))
         assertFalse(report.contains("ByteArray"))

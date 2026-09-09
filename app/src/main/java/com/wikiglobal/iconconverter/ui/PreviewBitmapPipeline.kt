@@ -5,8 +5,8 @@ import android.graphics.BitmapFactory
 import com.wikiglobal.iconconverter.renderer.IconRenderer
 
 /**
- * Current-generation bitmap cache helpers. All expensive PNG decoding and
- * Drawable rasterization happens before a Lazy item is composed.
+ * Bitmap helpers. Call PNG decoding and Drawable rasterization only from a
+ * background dispatcher; Material tiles request decoding as they enter composition.
  */
 object PreviewBitmapPipeline {
     const val MATERIAL_PREVIEW_DP = 80

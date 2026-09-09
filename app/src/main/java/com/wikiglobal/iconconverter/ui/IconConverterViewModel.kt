@@ -243,7 +243,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
             MonetUiState(
                 System.nanoTime(), palette, dark, sources, pngs, availability, overrides,
                 diagnostics, providerState, style, System.currentTimeMillis(),
-                PreviewBitmapPipeline.decodeMaterialPngs(pngs, targetSize),
+                emptyMap(),
                 resolution,
                 targetSize
             )
@@ -273,10 +273,7 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                 glyphDiskCache.save(componentKey, resolved.glyph)
                 MaterialStyledGlyphRenderer.render(resolved.glyph, monet.palette!!, monet.dark, monet.style.shape, monet.previewTargetSize)?.let { put(componentKey, it) } ?: remove(componentKey)
             }
-            val previews = monet.previewBitmaps.toMutableMap().apply {
-                generated[componentKey]?.let { PreviewBitmapPipeline.decodeMaterialPng(it, monet.previewTargetSize) }?.let { put(componentKey, it) } ?: remove(componentKey)
-            }
-            monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, previewBitmaps = previews, availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
+            monet.copy(generationId = System.nanoTime(), sources = sources, generated = generated, previewBitmaps = emptyMap(), availability = availability, overrides = overrides, diagnostics = diagnostics, lawniconsProvider = providerState, timestamp = System.currentTimeMillis())
         } }.onSuccess { updated ->
             _uiState.value = _uiState.value.copy(monet = updated, message = "已更新该应用的 Material You 预览")
         }.onFailure { error -> _uiState.value = _uiState.value.copy(message = error.message ?: "更新 Material You 预览失败") }
@@ -333,8 +330,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val resolution = withContext(Dispatchers.Default) { paletteResolver.resolve(style) } ?: return@launch
         val palette = resolution.palette
         val rendered = withContext(Dispatchers.Default) { materialGlyphCache.mapNotNull { (key, glyph) -> MaterialStyledGlyphRenderer.render(glyph, palette, current.dark, style.shape, current.previewTargetSize)?.let { key to it } }.toMap() }
-        val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered, current.previewTargetSize) }
-        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, previewBitmaps = previews, paletteResolution = resolution, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
+
+        _uiState.value = _uiState.value.copy(monet = current.copy(generationId = System.nanoTime(), palette = palette, generated = rendered, previewBitmaps = emptyMap(), paletteResolution = resolution, style = style, timestamp = System.currentTimeMillis()), message = "已按新颜色/形状重新渲染预览")
     }
 
     fun updateIconPackStyle(style: IconPackStyle) = viewModelScope.launch {
@@ -446,14 +443,14 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
                         ?.let { key to it }
                 }.toMap()
             }
-            val previews = withContext(Dispatchers.Default) { PreviewBitmapPipeline.decodeMaterialPngs(rendered, current.previewTargetSize) }
+
             // Preserve source/override/availability/diagnostic maps verbatim. A palette
             // refresh is serialized rendering work only, never source discovery.
             _uiState.value = _uiState.value.copy(monet = current.copy(
                 generationId = System.nanoTime(),
                 palette = newPalette,
                 generated = rendered,
-                previewBitmaps = previews,
+                previewBitmaps = emptyMap(),
                 paletteResolution = resolution,
                 timestamp = System.currentTimeMillis()
             ))
@@ -466,8 +463,8 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         val rendered = materialGlyphCache.mapNotNull { (key, glyph) ->
             MaterialStyledGlyphRenderer.render(glyph, current.palette!!, current.dark, current.style.shape, targetSize)?.let { key to it }
         }.toMap()
-        val previews = PreviewBitmapPipeline.decodeMaterialPngs(rendered, targetSize)
-        return current.copy(generationId = System.nanoTime(), generated = rendered, previewBitmaps = previews, previewTargetSize = targetSize, timestamp = System.currentTimeMillis())
+
+        return current.copy(generationId = System.nanoTime(), generated = rendered, previewBitmaps = emptyMap(), previewTargetSize = targetSize, timestamp = System.currentTimeMillis())
     }
 
     fun applyMonetToSystem() = viewModelScope.launch {
@@ -702,10 +699,18 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
     }
 
     fun exportDiagnosticReport(uri: Uri) = viewModelScope.launch {
-        val report = _uiState.value.diagnosticReport ?: return@launch
+        val snapshot = _uiState.value
+        val report = snapshot.diagnosticReport ?: return@launch
         runCatching {
             withContext(Dispatchers.IO) {
-                getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(report.toText()) }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                    it.write(report.toText())
+                    it.appendLine()
+                    it.appendLine("THEME_OWNERSHIP=${snapshot.themeOwnership}")
+                    it.appendLine("THEME_BASE_SHA=${snapshot.themeBaseSha ?: "UNKNOWN"}")
+                    it.appendLine("THEME_PROFILE=${snapshot.themeProfile ?: "NOT_CHECKED"}")
+                    it.appendLine("LAST_APPLY_SUMMARY=${snapshot.lastApplySummary ?: "NONE"}")
+                }
                     ?: error("无法写入诊断报告")
             }
         }.onSuccess { _uiState.value = _uiState.value.copy(diagnosticMessage = "诊断报告已导出") }
@@ -734,6 +739,15 @@ class IconConverterViewModel(application: Application) : AndroidViewModel(applic
         runCatching { withContext(Dispatchers.IO) {
             val report = buildString {
                 appendLine("MATERIAL_SOURCE_REPORT")
+                appendLine("PREVIEW_TARGET_SIZE=${monet.previewTargetSize}")
+                appendLine("GENERATED_COUNT=${monet.generated.size}")
+                appendLine("RETAINED_COUNT=${monet.sources.size - monet.generated.size}")
+                appendLine("DARK=${monet.dark}")
+                MonetGlyphSource.entries.forEach { source -> appendLine("SOURCE_COUNT_${source.name}=${monet.sourceCount(source)}") }
+                monet.palette?.colors(monet.dark)?.let { colors ->
+                    appendLine("PREVIEW_BACKGROUND=%08X".format(colors.first))
+                    appendLine("PREVIEW_FOREGROUND=%08X".format(colors.second))
+                }
                 monet.paletteResolution?.let { resolution ->
                     appendLine("PALETTE_SOURCE=${resolution.source}")
                     appendLine("PALETTE_FALLBACK_USED=${resolution.fallbackUsed}")
