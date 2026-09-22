@@ -5,10 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
@@ -16,6 +12,7 @@ import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import com.wikiglobal.iconconverter.ui.IconConverterScreen
 import com.wikiglobal.iconconverter.ui.IconConverterViewModel
+import com.wikiglobal.iconconverter.ui.HyperIconTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: IconConverterViewModel by viewModels()
@@ -28,9 +25,8 @@ class MainActivity : ComponentActivity() {
             val saveReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportDiagnosticReport) }
             val saveRouteReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportLastApplyRouteReport) }
             val saveMaterialReport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let(viewModel::exportMaterialSourceReport) }
-            val colors = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) if (isSystemInDarkTheme()) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this) else null
-            MaterialTheme(colorScheme = colors ?: androidx.compose.material3.lightColorScheme()) {
-                Surface {
+            HyperIconTheme {
+                Surface(color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
                     IconConverterScreen(
                         state = state,
                         onSelect = { openApk.launch(arrayOf("application/vnd.android.package-archive")) },
