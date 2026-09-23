@@ -994,7 +994,9 @@ private fun SystemToolsScreen(
 private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        AppleCard(Modifier.fillMaxWidth(), content)
+        AppleCard(Modifier.fillMaxWidth()) {
+            Column { content() }
+        }
     }
 }
 

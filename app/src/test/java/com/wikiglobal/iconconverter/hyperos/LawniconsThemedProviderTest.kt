@@ -29,6 +29,6 @@ class LawniconsThemedProviderTest {
         val file = File("src/main/assets/providers/Lawnicons.2.18.0.apk")
         assertTrue(file.isFile)
         val sha = file.inputStream().use { input -> MessageDigest.getInstance("SHA-256").digest(input.readBytes()).joinToString("") { "%02x".format(it) } }
-        assertEquals(LawniconsProvider.SHA256, sha)
+        assertEquals(LawniconsThemedProvider.BUNDLED_APK_SHA256, sha)
     }
 }

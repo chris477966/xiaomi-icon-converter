@@ -2,9 +2,9 @@
 
 Xiaomi Icon Converter 是一款面向 HyperOS 的图标转换与主题辅助工具，帮助用户导入 Icon Pack、检查图标映射、预览 Material You 效果，并在具备相应权限时应用到系统主题。
 
-当前稳定发布版本为 **v0.5.0**（`versionCode 20`）。
+当前发布版本为 **v1.0**（`versionName 1.0.0`，`versionCode 21`）。
 
-[查看 v0.5.0 Release](https://github.com/chris477966/xiaomi-icon-converter/releases/tag/v0.5.0)
+[下载 v1.0 APK](https://github.com/chris477966/xiaomi-icon-converter/releases/tag/v1.0)
 
 ## 功能概览
 
@@ -34,7 +34,7 @@ Xiaomi Icon Converter 是一款面向 HyperOS 的图标转换与主题辅助工�
 - 在执行主题变更前提供基础主题确认
 - 保留主题备份、恢复和完整诊断导出能力
 
-## v0.5.0 视觉更新
+## 界面与性能
 
 - 采用简约、Apple 风格的视觉层级和留白
 - 重排首页、Icon Pack、Material You 与 Settings 页面
@@ -54,27 +54,22 @@ Xiaomi Icon Converter 是一款面向 HyperOS 的图标转换与主题辅助工�
 6. 检查 Root 与 HyperOS 状态后，再执行应用操作。
 7. 如果出现异常，先导出诊断报告，再尝试恢复主题。
 
-## 界面预览
-
-![主界面](主图1.png)
-
-![Icon Pack 与 Material You](主图2.png)
-
-![详情与诊断](详情页.png)
-
 ## 当前版本信息
 
 | 项目 | 值 |
 | --- | --- |
-| `versionName` | `0.5.0` |
-| `versionCode` | `20` |
+| `versionName` | `1.0.0` |
+| `versionCode` | `21` |
 | `applicationId` | `com.wikiglobal.iconconverter` |
-| 发布分支 | `feature/v0.3.0-icon-pack` |
-| 发布 tag | `v0.5.0` |
+| 发布 tag | `v1.0` |
+
+## 安装与使用说明
+
+从 [GitHub Releases](https://github.com/chris477966/xiaomi-icon-converter/releases/tag/v1.0) 下载 APK 并安装。导入第三方 Icon Pack 时，请使用来源可信的 APK。应用或恢复系统主题需要设备具备相应 Root 权限；未授权时仍可浏览图标与检查预览。不同 HyperOS 版本和主题环境可能存在差异，请在设备上确认兼容性检查结果后再应用。
 
 ## 构建与验证
 
-使用仓库内置的 Gradle Wrapper，并按照 [RELEASE.md](RELEASE.md) 的顺序执行：
+使用仓库内置的 Gradle Wrapper，并按照 [RELEASE.md](RELEASE.md) 的顺序执行。请先配置本机 Android SDK 和 JDK 17：
 
 ```bash
 ./gradlew clean test assembleDebug
@@ -88,14 +83,14 @@ apksigner verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.a
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-发布前必须确认 APK 的 application ID、版本号、签名和 SHA-256，并对从 GitHub 下载的 Release asset 重新执行验证。
+发布前必须确认 APK 的 application ID、版本号、签名和 SHA-256，并对从 GitHub 下载的 Release asset 重新执行验证。Debug APK 使用 Android Debug 签名，适合直接安装测试；它不是应用商店签名包。
 
 ## 开发说明
 
 - 本项目使用 Kotlin、Jetpack Compose 和 Material 3。
-- UI 层负责展示状态与触发既有操作；Icon Pack 解析、匹配、主题应用和 Root 逻辑位于对应的 domain / hyperos 模块。
+- UI 层负责展示状态与触发既有操作；Icon Pack 解析、匹配与 HyperOS 主题处理位于各自的模块。
 - 涉及系统主题变更的操作应在真实设备上由用户确认。
-- Debug APK 仅用于测试和验收，不代表 Play Store 签名版本。
+- 项目内置 Lawnicons 资源提供器 APK，用于 Material 图标资源查找；它是运行时依赖，不应当作无用资源删除。
 
 ## 第三方组件与许可证
 

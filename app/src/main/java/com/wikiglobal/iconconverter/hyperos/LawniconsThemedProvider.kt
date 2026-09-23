@@ -31,6 +31,10 @@ class LawniconsThemedIndex(entries: Iterable<LawniconsThemeEntry>) {
  * xml/grayscale_icon_map rather than the ordinary appfilter.xml icon-pack mapping.
  */
 class LawniconsThemedProvider(private val context: Context) {
+    companion object {
+        const val BUNDLED_APK_SHA256 = "e830b37e1cd7cd66487492f4a1084ba086254b2b09541d729da0ec2169a73bfe"
+    }
+
     private var resources: Resources? = null
     private var index = LawniconsThemedIndex(emptyList())
     var state: LawniconsProviderState = LawniconsProviderState(); private set
@@ -40,10 +44,10 @@ class LawniconsThemedProvider(private val context: Context) {
         val target = File(context.cacheDir, "provider/lawnicons-2.18.0.apk")
         try {
             target.parentFile?.mkdirs()
-            if (!target.exists() || sha256(target) != LawniconsProvider.SHA256) {
+            if (!target.exists() || sha256(target) != BUNDLED_APK_SHA256) {
                 context.assets.open("providers/Lawnicons.2.18.0.apk").use { input -> target.outputStream().use(input::copyTo) }
             }
-            if (sha256(target) != LawniconsProvider.SHA256) return fail(LawniconsProviderStatus.APK_SHA_FAILED, "Lawnicons APK SHA-256 verification failed")
+            if (sha256(target) != BUNDLED_APK_SHA256) return fail(LawniconsProviderStatus.APK_SHA_FAILED, "Lawnicons APK SHA-256 verification failed")
             val appInfo = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.packageManager.getPackageArchiveInfo(target.path, PackageManager.PackageInfoFlags.of(0))?.applicationInfo
             } else {

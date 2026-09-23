@@ -28,8 +28,8 @@ android {
         applicationId = "com.wikiglobal.iconconverter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.5.0"
+        versionCode = 21
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -51,7 +51,6 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
